@@ -10,7 +10,7 @@ A script to setup and run PIA through WireGuard on OpenWrt
   - Connect to your OpenWrt router with SSH
   - Go (and create id needed) to the location you want to install the script
 <br /> For example: `mkdir /opt/scripts; cd /opt/scripts`
-  - Download the script: `wget *****`
+  - Download the script: `wget https://raw.githubusercontent.com/bolemo/pia_wg/main/pia_wg.sh`
   - Give execution permission to the script: `chmod +x pia_wg.sh`
   - Configure and run:
     - To configure and run PIA, use `./pia_wg.sh start` and answer the questions
@@ -35,6 +35,16 @@ uci commit pia_wg.@net_interface[0]
 ```
 
 Then, next time you use `./pia_wg.sh start` (if not already started, otherwise you need to restart or do stop then start to enable the new configuration) or `./pia_wg.sh restart`, it will use these extra settings when OpenWrt WireGuard will create the PIA interface and the PIA peer.
+
+## Watchdog
+It is possible to run the script as a watchdog that will check regularly the status and restart the VPN if needed.
+<br/> For that, just load the cronjob editor: `crontab -e`, then add this line (replacing `<path>` by the location of the script, for example `/opt/scripts` and save:
+```
+* * * * * /bin/sh <path>/pia_wg.sh start
+```
+
+## Logging
+The script log is located in `/var/log/pia_wg.log`
 
 ## Usage
 Usage: `pia_wg.sh {configure <section> | start | restart | stop | status}`
