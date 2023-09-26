@@ -147,19 +147,19 @@ keep_conf_section() {
 check_conf() {
   uci -q get pia_wg.@user[0] >/dev/null \
     && echo "User is configured" \
-    || { echo "User is not configured!" >&3; [ "$AUTO" ] && return 1 || set_piauser; }
+    || { echo "User is not configured!" >&3; sleep 1; [ "$AUTO" ] && return 1 || set_piauser; }
   uci -q get pia_wg.@keys[0] >/dev/null \
     && echo "Local keys are configured" \
-    || {  echo "Local keys are not configured!" >&3; generate_wgkeys; }
+    || {  echo "Local keys are not configured!" >&3; sleep 1; generate_wgkeys; }
   uci -q get pia_wg.@net_interface[0] >/dev/null \
     &&  echo "Network interface options are configured" \
-    || {  echo "Network interface options are not configured!" >&3; [ "$AUTO" ] && return 1 || set_defnetiface; }
+    || {  echo "Network interface options are not configured!" >&3; sleep 1; [ "$AUTO" ] && return 1 || set_defnetiface; }
   uci -q get pia_wg.@net_peer[0] >/dev/null \
     && echo "Network peer options are configured" \
-    || {  echo "Network peer options are not configured!" >&3; [ "$AUTO" ] && return 1 || set_defnetpeer; }
+    || {  echo "Network peer options are not configured!" >&3; sleep 1; [ "$AUTO" ] && return 1 || set_defnetpeer; }
   uci -q get pia_wg.@region[0] >/dev/null \
     && echo "PIA region is configured" \
-    || {  echo "PIA region is not configured!" >&3; [ "$AUTO" ] && return 1 || select_region; }
+    || {  echo "PIA region is not configured!" >&3; sleep 1; [ "$AUTO" ] && return 1 || select_region; }
 }
 
 get_piaserverconf() {
@@ -269,12 +269,12 @@ print_usage() {
 # ---- Main ->
 
 [ -e "$PIACONF" ] || touch "$PIACONF"
-[ -t 0 ] && AUTO=1 || unset AUTO
+[ -t 0 ] && unset AUTO || AUTO=1
 
 # Logging
 PIALOG='/var/log/pia_wg.log'
 export FIFO="$(mktemp -u /tmp/pia_wg.XXXXXXXXXX)"
-_exit() { exec 3>&-; rm "$FIFO"; exit; }
+_exit() { exec 3>&-; rm "$FIFO" >/dev/null 2>&1; exit; }
 trap "_exit" 1 2 3 6 EXIT
 touch "$PIALOG"
 mkfifo "$FIFO"
