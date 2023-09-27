@@ -278,7 +278,7 @@ print_usage() {
   echo "    - start --watchdog   : same as start and install the watchdog"
   echo "    - restart            : start or restart PIA WireGuard"
   echo "    - restart --watchdog : same as restart and install the watchdog"
-  echo "    - stop               : stop PIA WireGuard"
+  echo "    - stop               : stop PIA WireGuard (and remove the watchdog)"
   echo "    - status             : show PIA WireGuard status"
   echo "    - watchdog install   : install the watchdog"
   echo "    - watchdog remove    : remove the watchdog"
