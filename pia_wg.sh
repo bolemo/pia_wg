@@ -12,6 +12,7 @@
 #
 #########
 
+SCRIPTPATH="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/${0##*/}"
 PIACONF='/etc/config/pia_wg'
 PIAWG_IF='wg_pia'
 PIAWG_PEER='wgpeer_pia'
@@ -250,19 +251,37 @@ check_wg() {
   fi
 }
 
+watchdog_installed() {
+  grep -qF 'pia_wg.sh start' /etc/crontabs/root 2>/dev/null; return $?
+}
+
+watchdog_install() {
+  watchdog_installed && return
+  { crontab -l; echo "* * * * * /bin/sh $SCRIPTPATH start # pia_wg watchdog"; } | crontab -
+}
+
+watchdog_remove() {
+  watchdog_installed || return
+  crontab -l | grep -vF 'pia_wg.sh' | crontab -
+}
+
 print_usage() {
-  echo "Usage: $0 {configure <section> | start | restart | stop | status}"
+  echo "Usage: $0 { configure <section> | start [ --watchdog ] | restart [ --watchdog ] | stop | status | watchdog { install | remove } }"
   echo "  Details:"
-  echo "    - configure         : same as configure all"
-  echo "    - configure all     : configure all settings"
-  echo "    - configure user    : set PIA user ID and password"
-  echo "    - configure region  : set/choose PIA region"
-  echo "    - configure keys    : generate local WireGuard keys"
-  echo "    - configure network : generate default network settings"
-  echo "    - start             : start PIA WireGuard (if not already up)"
-  echo "    - restart           : start or restart PIA WireGuard"
-  echo "    - stop              : stop PIA WireGuard"
-  echo "    - status            : show PIA WireGuard status"
+  echo "    - configure          : same as configure all"
+  echo "    - configure all      : configure all settings"
+  echo "    - configure user     : set PIA user ID and password"
+  echo "    - configure region   : set/choose PIA region"
+  echo "    - configure keys     : generate local WireGuard keys"
+  echo "    - configure network  : generate default network settings"
+  echo "    - start              : start PIA WireGuard (if not already up)"
+  echo "    - start --watchdog   : same as start and install the watchdog"
+  echo "    - restart            : start or restart PIA WireGuard"
+  echo "    - restart --watchdog : same as restart and install the watchdog"
+  echo "    - stop               : stop PIA WireGuard"
+  echo "    - status             : show PIA WireGuard status"
+  echo "    - watchdog install   : install the watchdog"
+  echo "    - watchdog remove    : remove the watchdog"
 }
 
 
@@ -271,15 +290,19 @@ print_usage() {
 [ -e "$PIACONF" ] || touch "$PIACONF"
 [ -t 0 ] && unset AUTO || AUTO=1
 
-# Logging
-PIALOG='/var/log/pia_wg.log'
-export FIFO="$(mktemp -u /tmp/pia_wg.XXXXXXXXXX)"
-_exit() { exec 3>&-; rm "$FIFO" >/dev/null 2>&1; exit; }
-trap "_exit" 1 2 3 6 EXIT
-touch "$PIALOG"
-mkfifo "$FIFO"
-awk -v lf="$PIALOG" '{print; printf("[%s] %s\n",systime(),$0) >> lf}' "$FIFO" >&2 &
-exec 3<>"$FIFO"
+# Logging (only if not in interactive mode)
+if [ "$AUTO" ]; then
+  PIALOG='/var/log/pia_wg_watchdog.log'
+  export FIFO="$(mktemp -u /tmp/pia_wg.XXXXXXXXXX)"
+  _exit() { exec 3>&-; rm "$FIFO" >/dev/null 2>&1; exit; }
+  trap "_exit" 1 2 3 6 EXIT
+  touch "$PIALOG"
+  mkfifo "$FIFO"
+  awk -v lf="$PIALOG" '{print; printf("[%s] %s\n",systime(),$0) >> lf}' "$FIFO" >&2 &
+  exec 3<>"$FIFO"
+else
+  exec 3>&2
+fi
 
 case "$1" in
   'configure') case "$2" in
@@ -299,16 +322,25 @@ case "$1" in
     'keys') keep_conf_section 'keys' || generate_wgkeys;;
     *) echo "Unknown configure subcommand '$2'!"; print_usage; exit 1;;
     esac;;
-  'restart') start_wgpia;;
+  'watchdog') case "$2" in
+    'install') watchdog_install;;
+    'remove') watchdog_remove;;
+    esac;;
+  'restart') start_wgpia; R=$?
+    [ $R -eq 0 ] && [ "$2" = "--watchdog" ] && watchdog_install
+    exit $R
+    ;;
   'start')
     check_wg; case $? in
       0) echo "PIA is already up!";;
       1) start_wgpia;;
       2) echo "Could not start PIA!" >&2;;
-    esac; exit $?
+    esac; R=$?
+    [ $R -eq 0 ] && [ "$2" = "--watchdog" ] && watchdog_install
+    exit $R
     ;;
-  'stop') stop_wgpia;;
-  'status') check_wg; exit $?;;
+  'stop') watchdog_remove; stop_wgpia;;
+  'status') check_wg; R=$?; watchdog_installed && echo "Watchdog (cron) is installed" || echo "Watchdog (cron) is not installed"; exit $R;;
   '') print_usage;;
   *) echo "Unknown command '$*'!" >&2; print_usage; exit 1;;
 esac
