@@ -8,7 +8,7 @@ A script to setup and run PIA through WireGuard on OpenWrt
 
 ## Install
   - Connect to your OpenWrt router with SSH
-  - Go (and create id needed) to the location you want to install the script
+  - Go to (and create if needed) the location you want to install the script
 <br /> For example: `mkdir /opt/scripts; cd /opt/scripts`
   - Download the script: `wget https://raw.githubusercontent.com/bolemo/pia_wg/main/pia_wg.sh`
   - Give execution permission to the script: `chmod +x pia_wg.sh`
