@@ -13,9 +13,9 @@ A script to setup and run PIA through WireGuard on OpenWrt
   - Download the script: `wget https://raw.githubusercontent.com/bolemo/pia_wg/main/pia_wg.sh`
   - Give execution permission to the script: `chmod +x pia_wg.sh`
   - Configure and run:
-    - To configure and run PIA, use `./pia_wg.sh start` and answer the questions
+    - To configure and run PIA, use `./pia_wg.sh start` (or `./pia_wg.sh start --watchdog` if you want the watchdog installed) and answer the questions
     - To just configure, use `./pia_wg.sh configure` and answer the questions
-<br /> Then you can setup network advanced/expert settings (see below) and then to run, use `./pia_wg.sh start`
+<br /> Then you can setup network advanced/expert settings (see below) and then to run, use `./pia_wg.sh start` (or `./pia_wg.sh start --watchdog`)
 
 ## Advanced/Expert WireGuard network settings (not required for basic/common usage)
 You can setup the script to set any OpenWrt WireGuard network interface or peer settings this way (after running the initial configuration):
@@ -37,28 +37,30 @@ uci commit pia_wg.@net_interface[0]
 Then, next time you use `./pia_wg.sh start` (if not already started, otherwise you need to restart or do stop then start to enable the new configuration) or `./pia_wg.sh restart`, it will use these extra settings when OpenWrt WireGuard will create the PIA interface and the PIA peer.
 
 ## Watchdog
-It is possible to run the script as a watchdog that will check regularly the status and restart the VPN if needed.
-<br/> For that, just load the cronjob editor: `crontab -e`, then add this line (replacing `<path>` by the location of the script, for example `/opt/scripts` and save:
-```
-* * * * * /bin/sh <path>/pia_wg.sh start
-```
+The script can install a watchdog that will check regularly the status and restart the VPN if needed.
+<br/> For that, just use `--watchdog` when using `start`or `restart`, or run the command `./pia_wg.sh watchdog install`
+<br/> To unsinstall/remove the watchdog, use `./pia_wg.sh watchdog remove`; when `./pia_wg.sh stop` is used, the watchdog is automatically removed
 
 ## Logging
-The script log is located in `/var/log/pia_wg.log`
+When the watchdog is enabled, the scripts logs are located in `/var/log/pia_wg_watchdog.log`
 
 ## Usage
-Usage: `pia_wg.sh {configure <section> | start | restart | stop | status}`
+Usage: `pia_wg.sh { configure <section> | start [ --watchdog ] | restart [ --watchdog ] | stop | status | watchdog { install | remove } }`
 <br/>  Details:
-  - `configure`         : same as configure all
-  - `configure all`     : configure all settings
-  - `configure user`    : set PIA user ID and password
-  - `configure region`  : set/choose PIA region
-  - `configure keys`    : generate local WireGuard keys
-  - `configure network` : generate default network settings
-  - `start`             : start PIA WireGuard (if not already up)
-  - `restart`           : start or restart PIA WireGuard
-  - `stop`              : stop PIA WireGuard
-  - `status`            : show PIA WireGuard status
+  - `configure`          : same as configure all
+  - `configure all`      : configure all settings
+  - `configure user`     : set PIA user ID and password
+  - `configure region`   : set/choose PIA region
+  - `configure keys`     : generate local WireGuard keys
+  - `configure network`  : generate default network settings
+  - `start`              : start PIA WireGuard (if not already up)
+  - `start --watchdog`   : same as start and install the watchdog
+  - `restart`            : start or restart PIA WireGuard
+  - `restart --watchdog` : same as restart and install the watchdog
+  - `stop`               : stop PIA WireGuard (and remove the watchdog)
+  - `status`             : show PIA WireGuard status
+  - `watchdog install`   : install the watchdog
+  - `watchdog remove`    : remove the watchdog
 
 ## Copyright
 ©2023 bOLEMO
