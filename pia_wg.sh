@@ -7,6 +7,8 @@
 # - This thread: https://forum.openwrt.org/t/private-internet-access-pia-wireguard-vpn-on-openwrt/155475
 # - And @Lazerdog's script: https://github.com/jimhall718/piawg/blob/main/piawgx.sh
 #
+# Version: 1.0.1
+#
 # ©2023 bOLEMO
 # https://github.com/bolemo/pia_wg/
 #
@@ -14,6 +16,7 @@
 
 SCRIPTPATH="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/${0##*/}"
 PIACONF='/etc/config/pia_wg'
+PIALOG='/var/log/pia_wg_watchdog.log'
 PIAWG_IF='wg_pia'
 PIAWG_PEER='wgpeer_pia'
 
@@ -235,19 +238,24 @@ check_wg() {
     else echo "PIA WireGuard interface: DOWN!" >&3; return 1
   fi
 
-  if traceroute -i "$WAN_IF" -q1 -m1 1.1.1.1 >/dev/null
-    then echo "WAN connection: OK"
-    else echo "WAN connection: NOK!" >&3; return 2
-  fi
+#  if traceroute -i "$WAN_IF" -q1 -m1 1.1.1.1 >/dev/null
+#    then echo "WAN connection: OK"
+#    else echo "WAN connection: NOK!" >&3; return 2
+#  fi
 
-  if ping -q -c1 -n -I "$WAN_IF" "$PIAWG_EP" >/dev/null
-    then echo "Access to PIA Endpoint through WAN: OK"
-    else echo "Access to PIA Endpoint through WAN: NOK!" >&3; return 1
-  fi
+#  if ping -q -c1 -n -I "$WAN_IF" "$PIAWG_EP" >/dev/null
+#    then echo "Access to PIA Endpoint through WAN: OK"
+#    else echo "Access to PIA Endpoint through WAN: NOK!" >&3; return 1
+#  fi
 
-  if traceroute -i "$PIAWG_IF" -q1 -m1 1.1.1.1 >/dev/null
-    then echo "Connectivity through PIA: OK"
-    else echo "Connectivity through PIA: NOK" >&3; return 1
+  if traceroute -i "$PIAWG_IF" -q1 -m1 1.1.1.1 >/dev/null; then
+    echo "Connectivity through PIA: OK"
+  elif ping -q -c1 -n -I "$WAN_IF" "$PIAWG_EP" >/dev/null; then
+    echo "Connectivity through PIA: NOK" >&3; return 1
+  elif traceroute -i "$WAN_IF" -q1 -m1 1.1.1.1 >/dev/null; then
+    echo "Access to PIA Endpoint through WAN: NOK!" >&3; return 1
+  else
+    echo "Connectivity through PIA: NOK" >&3; return 1
   fi
 }
 
@@ -265,8 +273,16 @@ watchdog_remove() {
   crontab -l | grep -vF 'pia_wg.sh' | crontab -
 }
 
+log_show() {
+  [ -s "$PIALOG" ] && cat "$PIALOG" || echo "Log is empty!"
+}
+
+log_clear() {
+  [ -f "$PIALOG" ] && rm "$PIALOG"
+}
+
 print_usage() {
-  echo "Usage: $0 { configure <section> | start [ --watchdog ] | restart [ --watchdog ] | stop | status | watchdog { install | remove } }"
+  echo "Usage: $0 { configure <section> | start [ --watchdog ] | restart [ --watchdog ] | stop | status | watchdog { install | remove } | log { show | clear } }"
   echo "  Details:"
   echo "    - configure          : same as configure all"
   echo "    - configure all      : configure all settings"
@@ -282,6 +298,8 @@ print_usage() {
   echo "    - status             : show PIA WireGuard status"
   echo "    - watchdog install   : install the watchdog"
   echo "    - watchdog remove    : remove the watchdog"
+  echo "    - log show           : display the watchdog log"
+  echo "    - log clear          : clears the watchdog log"
 }
 
 
@@ -292,13 +310,12 @@ print_usage() {
 
 # Logging (only if not in interactive mode)
 if [ "$AUTO" ]; then
-  PIALOG='/var/log/pia_wg_watchdog.log'
   export FIFO="$(mktemp -u /tmp/pia_wg.XXXXXXXXXX)"
   _exit() { exec 3>&-; rm "$FIFO" >/dev/null 2>&1; exit; }
   trap "_exit" 1 2 3 6 EXIT
   touch "$PIALOG"
   mkfifo "$FIFO"
-  awk -v lf="$PIALOG" '{print; printf("[%s] %s\n",systime(),$0) >> lf}' "$FIFO" >&2 &
+  awk -v lf="$PIALOG" -v date="$(date)" '{print; printf("[%s] %s\n",date,$0) >> lf}' "$FIFO" >&2 &
   exec 3<>"$FIFO"
 else
   exec 3>&2
@@ -325,6 +342,7 @@ case "$1" in
   'watchdog') case "$2" in
     'install') watchdog_install;;
     'remove') watchdog_remove;;
+    *) echo "Unknown watchdog subcommand '$2'!"; print_usage; exit 1;;
     esac;;
   'restart') start_wgpia; R=$?
     [ $R -eq 0 ] && [ "$2" = "--watchdog" ] && watchdog_install
@@ -340,7 +358,12 @@ case "$1" in
     exit $R
     ;;
   'stop') watchdog_remove; stop_wgpia;;
-  'status') check_wg; R=$?; watchdog_installed && echo "Watchdog (cron) is installed" || echo "Watchdog (cron) is not installed"; exit $R;;
+  'status') check_wg; R=$?; watchdog_installed && echo "Watchdog (cron) installed: YES" || echo "Watchdog (cron) installed: NO"; exit $R;;
+  'log') case "$2" in
+    'show') log_show;;
+    'clear') log_clear;;
+    *) echo "Unknown log subcommand '$2'!"; print_usage; exit 1;;
+    esac;;
   '') print_usage;;
   *) echo "Unknown command '$*'!" >&2; print_usage; exit 1;;
 esac
