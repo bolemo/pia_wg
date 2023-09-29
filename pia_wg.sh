@@ -7,7 +7,7 @@
 # - This thread: https://forum.openwrt.org/t/private-internet-access-pia-wireguard-vpn-on-openwrt/155475
 # - And @Lazerdog's script: https://github.com/jimhall718/piawg/blob/main/piawgx.sh
 #
-# Version: 1.0.2
+# Version: 1.0.3
 #
 # ©2023 bOLEMO
 # https://github.com/bolemo/pia_wg/
@@ -284,16 +284,17 @@ log_clear() {
 
 script_update() {
   TMPDL="/tmp/pia_wg_dl.tmp"
+  CURVERS="$(awk '(index($0,"# Version: ")==1){print $3; exit}' "$SCRIPTPATH")"
   curl -s -o "$TMPDL" "$SCRIPTDL" || { echo "Failed to check/download latest version!" >&2; rm "$TMPDL"; exit 1; }
   MD5D="$(md5sum "$TMPDL"|cut -d' ' -f1)"
   MD5C="$(md5sum "$SCRIPTPATH"|cut -d' ' -f1)"
-  [ "$MD5D" = "$MD5C" ] && { echo "This is already latest version"; rm "$TMPDL"; exit; }
-  OLDVERS="$(awk '(index($0,"# Version: ")==1){print $3; exit}' "$SCRIPTPATH")"
+  [ "$MD5D" = "$MD5C" ] && { echo "This is already latest version ($CURVERS)"; rm "$TMPDL"; exit; }
   NEWVERS="$(awk '(index($0,"# Version: ")==1){print $3; exit}' "$TMPDL")"
-  [ "$OLDVERS" = "$NEWVERS" ] && { echo "This is already latest version"; rm "$TMPDL"; exit; }
-  echo "Upgrading from version $OLDVERS to version $NEWVERS"
+  read_yn "Version $NEWVERS is available; install" || { rm "$TMPDL"; exit; }
+  echo "Upgrading from version $CURVERS to version $NEWVERS"
   mv "$TMPDL" "$SCRIPTPATH"
   chmod +x "$SCRIPTPATH"
+  echo "Done"
 }
 
 print_usage() {
