@@ -292,8 +292,8 @@ script_update() {
   NEWVERS="$(awk '(index($0,"# Version: ")==1){print $3; exit}' "$TMPDL")"
   [ "$OLDVERS" = "$NEWVERS" ] && { echo "This is already latest version"; rm "$TMPDL"; exit; }
   echo "Upgrading from version $OLDVERS to version $NEWVERS"
-  mv "$TMPDL" "$SCRIPTDL"
-  chmod +x "$SCRIPTDL"
+  mv "$TMPDL" "$SCRIPTPATH"
+  chmod +x "$SCRIPTPATH"
 }
 
 print_usage() {
