@@ -7,13 +7,14 @@
 # - This thread: https://forum.openwrt.org/t/private-internet-access-pia-wireguard-vpn-on-openwrt/155475
 # - And @Lazerdog's script: https://github.com/jimhall718/piawg/blob/main/piawgx.sh
 #
-# Version: 1.0.1
+# Version: 1.0.2
 #
 # ©2023 bOLEMO
 # https://github.com/bolemo/pia_wg/
 #
 #########
 
+SCRIPTDL="https://raw.githubusercontent.com/bolemo/pia_wg/main/pia_wg.sh"
 SCRIPTPATH="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/${0##*/}"
 PIACONF='/etc/config/pia_wg'
 PIALOG='/var/log/pia_wg_watchdog.log'
@@ -281,8 +282,22 @@ log_clear() {
   [ -f "$PIALOG" ] && rm "$PIALOG"
 }
 
+script_update() {
+  TMPDL="/tmp/pia_wg_dl.tmp"
+  curl -s -o "$TMPDL" "$SCRIPTDL" || { echo "Failed to check/download latest version!" >&2; rm "$TMPDL"; exit 1; }
+  MD5D="$(md5sum "$TMPDL"|cut -d' ' -f1)"
+  MD5C="$(md5sum "$SCRIPTPATH"|cut -d' ' -f1)"
+  [ "$MD5D" = "$MD5C" ] && { echo "This is already latest version"; rm "$TMPDL"; exit; }
+  OLDVERS="$(awk '(index($0,"# Version: ")==1){print $3; exit}' "$SCRIPTPATH")"
+  NEWVERS="$(awk '(index($0,"# Version: ")==1){print $3; exit}' "$TMPDL")"
+  [ "$OLDVERS" = "$NEWVERS" ] && { echo "This is already latest version"; rm "$TMPDL"; exit; }
+  echo "Upgrading from version $OLDVERS to version $NEWVERS"
+  mv "$TMPDL" "$SCRIPTDL"
+  chmod +x "$SCRIPTDL"
+}
+
 print_usage() {
-  echo "Usage: $0 { configure <section> | start [ --watchdog ] | restart [ --watchdog ] | stop | status | watchdog { install | remove } | log { show | clear } }"
+  echo "Usage: $0 { configure <section> | start [ --watchdog ] | restart [ --watchdog ] | stop | status | watchdog { install | remove } | log { show | clear } | update }"
   echo "  Details:"
   echo "    - configure          : same as configure all"
   echo "    - configure all      : configure all settings"
@@ -300,6 +315,7 @@ print_usage() {
   echo "    - watchdog remove    : remove the watchdog"
   echo "    - log show           : display the watchdog log"
   echo "    - log clear          : clears the watchdog log"
+  echo "    - update             : update the script to latest version"
 }
 
 
@@ -364,6 +380,7 @@ case "$1" in
     'clear') log_clear;;
     *) echo "Unknown log subcommand '$2'!"; print_usage; exit 1;;
     esac;;
+  'update') script_update;;
   '') print_usage;;
   *) echo "Unknown command '$*'!" >&2; print_usage; exit 1;;
 esac
