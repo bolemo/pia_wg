@@ -6,6 +6,9 @@ A script to setup and run PIA through WireGuard on OpenWrt
   - This thread: https://forum.openwrt.org/t/private-internet-access-pia-wireguard-vpn-on-openwrt/155475
   - And @Lazerdog's script: https://github.com/jimhall718/piawg/blob/main/piawgx.sh
 
+## Version
+1.0.2
+
 ## Install
   - Connect to your OpenWrt router with SSH
   - Go to (and create if needed) the location you want to install the script
@@ -16,6 +19,9 @@ A script to setup and run PIA through WireGuard on OpenWrt
     - To configure and run PIA, use `./pia_wg.sh start` (or `./pia_wg.sh start --watchdog` if you want the watchdog installed) and answer the questions
     - To just configure, use `./pia_wg.sh configure` and answer the questions
 <br /> Then you can setup network advanced/expert settings (see below) and then to run, use `./pia_wg.sh start` (or `./pia_wg.sh start --watchdog`)
+
+## Update
+The script can be updated to the latest version using: `pia_wg.sh update`
 
 ## Advanced/Expert WireGuard network settings (not required for basic/common usage)
 You can setup the script to set any OpenWrt WireGuard network interface or peer settings this way (after running the initial configuration):
@@ -42,7 +48,8 @@ The script can install a watchdog that will check regularly the status and resta
 <br/> To unsinstall/remove the watchdog, use `./pia_wg.sh watchdog remove`; when `./pia_wg.sh stop` is used, the watchdog is automatically removed
 
 ## Logging
-When the watchdog is enabled, the scripts logs are located in `/var/log/pia_wg_watchdog.log`
+When the watchdog is enabled, the scripts log is located in `/var/log/pia_wg_watchdog.log`
+The log can be displayed using `pia_wg.sh log show` and cleared using `pia_wg_sh log clear`
 
 ## Usage
 Usage: `pia_wg.sh { configure <section> | start [ --watchdog ] | restart [ --watchdog ] | stop | status | watchdog { install | remove } }`
@@ -61,6 +68,9 @@ Usage: `pia_wg.sh { configure <section> | start [ --watchdog ] | restart [ --wat
   - `status`             : show PIA WireGuard status
   - `watchdog install`   : install the watchdog
   - `watchdog remove`    : remove the watchdog
+  - `log show`           : display the watchdog log
+  - `log clear`          : clears the watchdog log
+  - `update`             : update the script to latest version
 
 ## Copyright
 ©2023 bOLEMO
