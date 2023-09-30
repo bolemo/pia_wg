@@ -239,16 +239,6 @@ check_wg() {
     else echo "WireGuard PIA interface: DOWN!" >&3; return 1
   fi
 
-#  if traceroute -i "$WAN_IF" -q1 -m1 1.1.1.1 >/dev/null
-#    then echo "WAN connection: OK"
-#    else echo "WAN connection: NOK!" >&3; return 2
-#  fi
-
-#  if ping -q -c1 -n -I "$WAN_IF" "$PIAWG_EP" >/dev/null
-#    then echo "Access to PIA Endpoint through WAN: OK"
-#    else echo "Access to PIA Endpoint through WAN: NOK!" >&3; return 1
-#  fi
-
   if traceroute -i "$PIAWG_IF" -q1 -m1 1.1.1.1 >/dev/null; then
     echo "Connectivity through PIA: OK"
   elif ping -q -c1 -n -I "$WAN_IF" "$PIAWG_EP" >/dev/null; then
@@ -271,19 +261,22 @@ watchdog_lastrun() {
 watchdog_install() {
   watchdog_installed && return
   { crontab -l; echo "* * * * * /bin/sh $SCRIPTPATH start # pia_wg watchdog"; } | crontab -
+  echo "Watchdog installed" >&3
 }
 
 watchdog_remove() {
   watchdog_installed || return
   crontab -l | grep -vF 'pia_wg.sh' | crontab -
+  echo "Watchdog removed" >&3
 }
 
 log_show() {
-  [ -s "$PIALOG" ] && cat "$PIALOG" || echo "Log is empty!"
+  [ -s "$PIALOG" ] && { cat "$PIALOG"; watchdog_lastrun; } || echo "Log is empty!"
 }
 
 log_clear() {
-  [ -f "$PIALOG" ] && rm "$PIALOG"
+  :>"$PIALOG"
+  echo "Log cleared" >&3
 }
 
 script_update() {
