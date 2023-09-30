@@ -7,7 +7,7 @@
 # - This thread: https://forum.openwrt.org/t/private-internet-access-pia-wireguard-vpn-on-openwrt/155475
 # - And @Lazerdog's script: https://github.com/jimhall718/piawg/blob/main/piawgx.sh
 #
-# Version: 1.0.3
+# Version: 1.0.4
 #
 # ©2023 bOLEMO
 # https://github.com/bolemo/pia_wg/
@@ -264,6 +264,10 @@ watchdog_installed() {
   grep -qF 'pia_wg.sh start' /etc/crontabs/root 2>/dev/null; return $?
 }
 
+watchdog_lastrun() {
+  [ -f "$PIALOG" ] && { printf "Last watchdog check: "; date -r "$PIALOG"; }
+}
+
 watchdog_install() {
   watchdog_installed && return
   { crontab -l; echo "* * * * * /bin/sh $SCRIPTPATH start # pia_wg watchdog"; } | crontab -
@@ -375,7 +379,7 @@ case "$1" in
     exit $R
     ;;
   'stop') watchdog_remove; stop_wgpia;;
-  'status') check_wg; R=$?; watchdog_installed && echo "Watchdog (cron) installed: YES" || echo "Watchdog (cron) installed: NO"; exit $R;;
+  'status') check_wg; R=$?; watchdog_installed && { echo "Watchdog (cron) installed: YES"; watchdog_lastrun; } || echo "Watchdog (cron) installed: NO"; exit $R;;
   'log') case "$2" in
     'show') log_show;;
     'clear') log_clear;;
