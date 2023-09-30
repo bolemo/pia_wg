@@ -265,7 +265,7 @@ watchdog_installed() {
 }
 
 watchdog_lastrun() {
-  [ -f "$PIALOG" ] && { printf "Last watchdog check: "; date -r "$PIALOG"; }
+  [ -f "$PIALOG" ] && { printf "Watchdog last check: "; date -r "$PIALOG"; }
 }
 
 watchdog_install() {
