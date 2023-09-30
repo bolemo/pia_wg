@@ -261,22 +261,21 @@ watchdog_lastrun() {
 watchdog_install() {
   watchdog_installed && return
   { crontab -l; echo "* * * * * /bin/sh $SCRIPTPATH start # pia_wg watchdog"; } | crontab -
-  echo "Watchdog installed" >&3
+  echo "[$(date)] Watchdog installed" >>"$PIALOG"
 }
 
 watchdog_remove() {
   watchdog_installed || return
   crontab -l | grep -vF 'pia_wg.sh' | crontab -
-  echo "Watchdog removed" >&3
+  echo "[$(date)] Watchdog removed" >>"$PIALOG"
 }
 
 log_show() {
-  [ -s "$PIALOG" ] && { cat "$PIALOG"; watchdog_lastrun; } || echo "Log is empty!"
+  [ -s "$PIALOG" ] && cat "$PIALOG" || echo "Log is empty!"
 }
 
 log_clear() {
-  :>"$PIALOG"
-  echo "Log cleared" >&3
+  echo "[$(date)] Log cleared" >"$PIALOG"
 }
 
 script_update() {
