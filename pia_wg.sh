@@ -255,7 +255,7 @@ watchdog_installed() {
 }
 
 watchdog_lastrun() {
-  [ -f "$PIALOG" ] && { printf "Watchdog last check: "; date -r "$PIALOG"; }
+  [ -f "$PIALOG" ] && date -r "$PIALOG" || return 1
 }
 
 watchdog_install() {
@@ -272,6 +272,7 @@ watchdog_remove() {
 
 log_show() {
   [ -s "$PIALOG" ] && cat "$PIALOG" || echo "Log is empty!"
+  watchdog_installed && WLR="$(watchdog_lastrun)" && echo "[$WLR] Watchdog last check"
 }
 
 log_clear() {
@@ -371,7 +372,7 @@ case "$1" in
     exit $R
     ;;
   'stop') watchdog_remove; stop_wgpia;;
-  'status') check_wg; R=$?; watchdog_installed && { echo "Watchdog (cron) installed: YES"; watchdog_lastrun; } || echo "Watchdog (cron) installed: NO"; exit $R;;
+  'status') check_wg; R=$?; watchdog_installed && { echo "Watchdog (cron) installed: YES"; WLR="$(watchdog_lastrun)" && echo "Watchdog last check: $WLR"; } || echo "Watchdog (cron) installed: NO"; exit $R;;
   'log') case "$2" in
     'show') log_show;;
     'clear') log_clear;;
