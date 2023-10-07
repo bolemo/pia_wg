@@ -315,7 +315,7 @@ print_usage() {
   echo "    - watchdog install   : install the watchdog"
   echo "    - watchdog remove    : remove the watchdog"
   echo "    - log show           : display the watchdog log"
-  echo "    - log clear          : clears the watchdog log"
+  echo "    - log clear          : clear the watchdog log"
   echo "    - update             : update the script to latest version"
 }
 
