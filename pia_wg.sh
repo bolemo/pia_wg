@@ -327,7 +327,7 @@ if [ "$AUTO" ]; then
   export FIFO="$(mktemp -u /tmp/pia_wg.XXXXXXXXXX)"
   _exit() { exec 3>&-; rm "$FIFO" >/dev/null 2>&1; exit; }
   trap "_exit" 1 2 3 6 EXIT
-  touch "$PIALOG"
+  [ -f "$PIALOG" ] || echo "[$(date)] Log created" >"$PIALOG"
   mkfifo "$FIFO"
   awk -v lf="$PIALOG" -v date="$(date)" '{print; printf("[%s] %s\n",date,$0) >> lf}' "$FIFO" >&2 &
   exec 3<>"$FIFO"
