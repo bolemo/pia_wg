@@ -305,7 +305,7 @@ print_usage() {
   echo "    - configure region   : set/choose PIA region"
   echo "    - configure keys     : generate local WireGuard keys"
   echo "    - configure network  : generate default network settings"
-  echo "    - network init       : setup PIA WireGuard network (no start)"
+  echo "    - init-network       : setup PIA WireGuard network (no start)"
   echo "    - start              : start PIA WireGuard (if not already up)"
   echo "    - start --watchdog   : same as start and install the watchdog"
   echo "    - restart            : start or restart PIA WireGuard"
@@ -361,7 +361,7 @@ case "$1" in
     'remove') watchdog_remove;;
     *) echo "Unknown watchdog subcommand '$2'!"; print_usage; exit 1;;
     esac;;
-  'network init') set_netconf;;
+  'init-network') set_netconf;;
   'restart') start_wgpia; R=$?
     [ $R -eq 0 ] && [ "$2" = "--watchdog" ] && watchdog_install
     exit $R
