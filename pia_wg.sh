@@ -7,7 +7,7 @@
 # - This thread: https://forum.openwrt.org/t/private-internet-access-pia-wireguard-vpn-on-openwrt/155475
 # - And @Lazerdog's script: https://github.com/jimhall718/piawg/blob/main/piawgx.sh
 #
-# Version: 1.0.4
+# Version: 1.0.5
 #
 # ©2023 bOLEMO
 # https://github.com/bolemo/pia_wg/
@@ -167,8 +167,10 @@ check_conf() {
     || {  echo "PIA region is not configured!" >&3; sleep 1; [ "$AUTO" ] && return 1 || select_region; }
 }
 
-get_piaserverconf() {
+set_netconf() {
+  check_conf || { echo "Configuration is incomplete; exiting!" >&3; exit 1; }
   uci -q get pia_wg.@token[0] >/dev/null && [ $(($(date +%s) - $(uci get pia_wg.@token[0].timestamp))) -lt 86400 ] || renew_piatoken
+  echo "Configuring network..."
   PIAADDKEY="$(curl -s -k -G --data-urlencode "pt=$(uci -q get pia_wg.@token[0].hash)" --data-urlencode "pubkey=$(uci -q get pia_wg.@keys[0].pub)" "https://$(uci -q get pia_wg.@region[0].dns):1337/addKey")"
 #  echo "$PIAADDKEY"
 
@@ -215,8 +217,8 @@ EOI
 }
 
 start_wgpia() {
+  set_netconf
   echo "Starting PIA..."
-  check_conf && get_piaserverconf || { echo "Configuration is incomplete; exiting!" >&3; exit 1; }
   ifdown $PIAWG_IF >/dev/null 2>&1
   ifup $PIAWG_IF
   sleep 1
@@ -303,6 +305,7 @@ print_usage() {
   echo "    - configure region   : set/choose PIA region"
   echo "    - configure keys     : generate local WireGuard keys"
   echo "    - configure network  : generate default network settings"
+  echo "    - network init       : setup PIA WireGuard network (no start)"
   echo "    - start              : start PIA WireGuard (if not already up)"
   echo "    - start --watchdog   : same as start and install the watchdog"
   echo "    - restart            : start or restart PIA WireGuard"
@@ -358,6 +361,7 @@ case "$1" in
     'remove') watchdog_remove;;
     *) echo "Unknown watchdog subcommand '$2'!"; print_usage; exit 1;;
     esac;;
+  'network init') set_netconf;;
   'restart') start_wgpia; R=$?
     [ $R -eq 0 ] && [ "$2" = "--watchdog" ] && watchdog_install
     exit $R
