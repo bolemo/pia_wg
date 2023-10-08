@@ -170,7 +170,7 @@ check_conf() {
 set_netconf() {
   check_conf || { echo "Configuration is incomplete; exiting!" >&3; exit 1; }
   uci -q get pia_wg.@token[0] >/dev/null && [ $(($(date +%s) - $(uci get pia_wg.@token[0].timestamp))) -lt 86400 ] || renew_piatoken
-  echo "Configuring network..."
+  echo "Initializing network"
   PIAADDKEY="$(curl -s -k -G --data-urlencode "pt=$(uci -q get pia_wg.@token[0].hash)" --data-urlencode "pubkey=$(uci -q get pia_wg.@keys[0].pub)" "https://$(uci -q get pia_wg.@region[0].dns):1337/addKey")"
 #  echo "$PIAADDKEY"
 
@@ -218,7 +218,7 @@ EOI
 
 start_wgpia() {
   set_netconf
-  echo "Starting PIA..."
+  echo "Starting PIA"
   ifdown $PIAWG_IF >/dev/null 2>&1
   ifup $PIAWG_IF
   sleep 1
