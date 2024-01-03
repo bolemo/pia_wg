@@ -15,6 +15,7 @@ A script to setup and run PIA through WireGuard on OpenWrt
 <br /> For example: `mkdir /opt/scripts; cd /opt/scripts`
   - Download the script: `wget https://raw.githubusercontent.com/bolemo/pia_wg/main/pia_wg.sh`
   - Give execution permission to the script: `chmod +x pia_wg.sh`
+  - Install packages which the script depends on: `opkg update && opkg install coreutils-stty coreutils-nl`
   - Configure and run:
     - To configure and run PIA, use `./pia_wg.sh start` (or `./pia_wg.sh start --watchdog` if you want the watchdog installed) and answer the questions
     - To just configure, use `./pia_wg.sh configure` and answer the questions
