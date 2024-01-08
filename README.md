@@ -74,5 +74,11 @@ Usage: `pia_wg.sh { configure <section> | start [ --watchdog ] | restart [ --wat
   - `log clear`          : clear the watchdog log
   - `update`             : update the script to latest version
 
+## Notes
+Please, take into account that the script is only creating and setting up the WireGuard interface. It is up to the user to set up/adapt his firewall zones (either including the interface in the WAN zone, or creating a specific zone for it named VPN, PIA or whichever name you want).
+
+A user reported an issue not directly linked to this script but that others users might experience : on his OpenWrt setup, when his router restarts, the time is not properly set and it prevents the interface to go up.
+He proposed a solution here: https://github.com/bolemo/pia_wg/issues/5
+
 ## Copyright
-©2023 bOLEMO
+©2024 bOLEMO
