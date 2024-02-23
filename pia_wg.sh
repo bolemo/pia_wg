@@ -241,11 +241,11 @@ check_wg() {
     else echo "WireGuard PIA interface: DOWN!" >&3; return 1
   fi
 
-  if traceroute -i "$PIAWG_IF" -q1 -m1 1.1.1.1 >/dev/null; then
+  if traceroute -i "$PIAWG_IF" -q1 -m1 1.1.1.1 | grep -q ' ms'; then
     echo "Connectivity through PIA: OK"
   elif ping -q -c1 -n -I "$WAN_IF" "$PIAWG_EP" >/dev/null; then
     echo "Connectivity through PIA: NOK" >&3; return 1
-  elif traceroute -i "$WAN_IF" -q1 -m1 1.1.1.1 >/dev/null; then
+  elif traceroute -i "$WAN_IF" -q1 -m1 1.1.1.1 | grep -q ' ms'; then
     echo "Access to PIA Endpoint through WAN: NOK!" >&3; return 1
   else
     echo "Connectivity through PIA: NOK" >&3; return 1
