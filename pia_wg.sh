@@ -15,7 +15,7 @@
 #########
 
 SCRIPTDL="https://raw.githubusercontent.com/bolemo/pia_wg/main/pia_wg.sh"
-SCRIPTPATH="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/${0##*/}"
+SCRIPTPATH="$(CDPATH="" cd -- "$(dirname -- "$0")" && pwd)/${0##*/}"
 PIACONF='/etc/config/pia_wg'
 PIALOG='/var/log/pia_wg_watchdog.log'
 PIAWG_IF='wg_pia'
@@ -175,7 +175,7 @@ set_netconf() {
 #  echo "$PIAADDKEY"
 
   WGSERVSTATUS="$(echo "$PIAADDKEY" | jq -r '.status')"
-  [ "$WGSERVSTATUS" == "OK" ] || { echo "PIA server status: $WGSERVSTATUS; Aborting!" >&3; exit 1; }
+  [ "$WGSERVSTATUS" = "OK" ] || { echo "PIA server status: $WGSERVSTATUS; Aborting!" >&3; exit 1; }
 
   WGSERVIP="$(echo "$PIAADDKEY" | jq -r '.server_ip')"
   WGSERVPT="$(echo "$PIAADDKEY" | jq -r '.server_port')"
@@ -327,7 +327,8 @@ print_usage() {
 
 # Logging (only if not in interactive mode)
 if [ "$AUTO" ]; then
-  export FIFO="$(mktemp -u /tmp/pia_wg.XXXXXXXXXX)"
+  FIFO="$(mktemp -u /tmp/pia_wg.XXXXXXXXXX)"
+  export FIFO
   _exit() { exec 3>&-; rm "$FIFO" >/dev/null 2>&1; exit; }
   trap "_exit" 1 2 3 6 EXIT
   [ -f "$PIALOG" ] && touch "$PIALOG" || echo "[$(date)] Log created" >"$PIALOG"
