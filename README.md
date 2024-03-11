@@ -23,7 +23,7 @@ A script to setup and run PIA through WireGuard on OpenWrt
 
 ## Setup firewall
 
-__The firewall setup depends on your needs and your personnal configurations.__
+__The firewall setup depends on your needs and your personal configuration.__
 
 For a typical setup (direct all LAN traffic to/from internet through the newly created wireguard interface), you'll need to update your firewall this way:
 
