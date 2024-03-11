@@ -23,7 +23,9 @@ A script to setup and run PIA through WireGuard on OpenWrt
 
 ## Setup firewall
 
-To direct LAN traffic through the newly created wireguard interface, you'll need to update your firewall:
+__The firewall setup depends on your needs and your personnal configurations.__
+
+For a typical setup (direct all LAN traffic to/from internet through the newly created wireguard interface), you'll need to update your firewall this way:
 
 - Navigate to Network > Firewall
 - Create a new Zone, name it PIA or whatever you want
