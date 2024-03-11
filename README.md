@@ -15,11 +15,26 @@ A script to setup and run PIA through WireGuard on OpenWrt
 <br /> For example: `mkdir /opt/scripts; cd /opt/scripts`
   - Download the script: `wget https://raw.githubusercontent.com/bolemo/pia_wg/main/pia_wg.sh`
   - Give execution permission to the script: `chmod +x pia_wg.sh`
-  - Install packages which the script depends on: `opkg update && opkg install coreutils-stty coreutils-nl`
+  - Install packages which the script depends on: `opkg update && opkg install jq curl wireguard-tools luci-proto-wireguard coreutils-stty coreutils-nl`
   - Configure and run:
     - To configure and run PIA, use `./pia_wg.sh start` (or `./pia_wg.sh start --watchdog` if you want the watchdog installed) and answer the questions
     - To just configure, use `./pia_wg.sh configure` and answer the questions
 <br /> Then you can setup network advanced/expert settings (see below) and then to run, use `./pia_wg.sh start` (or `./pia_wg.sh start --watchdog`)
+
+## Setup firewall
+
+__The firewall setup depends on your needs and your personnal configurations.__
+
+For a typical setup (direct all LAN traffic to/from internet through the newly created wireguard interface), you'll need to update your firewall this way:
+
+- Navigate to Network > Firewall
+- Create a new Zone, name it PIA or whatever you want
+- In the General Settings tab, enable **Masquerading** and **MSS Clamping**, then add **LAN** to **Allow forward from source zones**
+- In the Advanced Settings tab, set **Covered Devices** to **wg_pia**
+- Save the zone
+- Now edit your zone starting with **LAN**
+- Set **Allow forward to destination zones** to **PIA** or whatever you named the previously created zone
+- Traffic should now only be allowed through the wireguard connection
 
 ## Update
 The script can be updated to the latest version using: `pia_wg.sh update`
