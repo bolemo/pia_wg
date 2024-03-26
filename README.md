@@ -7,7 +7,7 @@ A script to setup and run PIA through WireGuard on OpenWrt
   - And @Lazerdog's script: https://github.com/jimhall718/piawg/blob/main/piawgx.sh
 
 ## Version
-1.0.6
+1.0.7
 
 ## Install
   - Connect to your OpenWrt router with SSH
@@ -68,7 +68,7 @@ When the watchdog is enabled, the scripts log is located in `/var/log/pia_wg_wat
 The log can be displayed using `pia_wg.sh log show` and cleared using `pia_wg_sh log clear`
 
 ## Usage
-Usage: `pia_wg.sh { configure <section> | start [ --watchdog ] | restart [ --watchdog ] | stop | status | watchdog { install | remove } }`
+Usage: `pia_wg.sh { configure <section> | start [ --watchdog ] | restart [ --watchdog ] | stop | status | watchdog { install | remove } | log { show | clear | path } | update }
 <br/>  Details:
   - `configure`          : same as configure all
   - `configure all`      : configure all settings
@@ -87,6 +87,7 @@ Usage: `pia_wg.sh { configure <section> | start [ --watchdog ] | restart [ --wat
   - `watchdog remove`    : remove the watchdog
   - `log show`           : display the watchdog log
   - `log clear`          : clear the watchdog log
+  - `log path`           : set a custom Directory Path for the log
   - `update`             : update the script to latest version
 
 ## Notes
