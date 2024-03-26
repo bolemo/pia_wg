@@ -7,7 +7,7 @@
 # - This thread: https://forum.openwrt.org/t/private-internet-access-pia-wireguard-vpn-on-openwrt/155475
 # - And @Lazerdog's script: https://github.com/jimhall718/piawg/blob/main/piawgx.sh
 #
-# Version: 1.0.6
+# Version: 1.0.7
 #
 # ©2024 bOLEMO
 # https://github.com/bolemo/pia_wg/
@@ -16,8 +16,9 @@
 
 SCRIPTDL="https://raw.githubusercontent.com/bolemo/pia_wg/main/pia_wg.sh"
 SCRIPTPATH="$(CDPATH="" cd -- "$(dirname -- "$0")" && pwd)/${0##*/}"
+LOGDEFPATH='/var/log'
+LOGNAME='pia_wg_watchdog.log'
 PIACONF='/etc/config/pia_wg'
-PIALOG='/var/log/pia_wg_watchdog.log'
 PIAWG_IF='wg_pia'
 PIAWG_PEER='wgpeer_pia'
 
@@ -30,6 +31,32 @@ read_yn() {
     n|N|no|No|nO|NO) return 1;;
     *) return 0;;
   esac
+}
+
+set_logpath() {
+  if [ "$1" ]; then LOGPATH="$1"
+  else
+    LOGPATH="$(uci -q get pia_wg.@log[0].path)"
+    echo "Current Directory Path is: $LOGPATH"
+    printf "Enter the Directory Path for the log (press enter to keep current one): "; read NEWLOGPATH
+    [ -z "$NEWLOGPATH" ] || LOGPATH="$NEWLOGPATH"
+  fi
+  uci -q batch << EOI >/dev/null
+    delete pia_wg.@log[0]
+    add pia_wg log
+    set pia_wg.@log[0].path="$LOGPATH"
+    commit pia_wg.@log[0]
+EOI
+}
+
+logfile() {
+  if LOGPATH=$(uci -q get pia_wg.@log[0].path); then
+    [ -d "$LOGPATH" ] || mkdir -p "$LOGPATH" 2>/dev/null
+    echo "$LOGPATH/$LOGNAME"
+  else
+    set_logpath "$LOGDEFPATH"
+    echo "$LOGDEFPATH/$LOGNAME"
+  fi
 }
 
 select_region() {
@@ -218,12 +245,12 @@ EOI
 
 start_wgpia() {
   set_netconf
-  echo "Starting PIA"
+  echo "Starting PIA ($(uci get network.$PIAWG_PEER.description))"
   ifdown $PIAWG_IF >/dev/null 2>&1
   ifup $PIAWG_IF
   sleep 1
   check_wg
-  [ $? -eq 0 ] && echo "PIA started successfully" >&3 || echo "Could not start PIA!" >&3
+  [ $? -eq 0 ] && echo "PIA started successfully ($(uci get network.$PIAWG_PEER.description))" >&3 || echo "Could not start PIA!" >&3
   return $?
 }
 
@@ -241,6 +268,7 @@ check_wg() {
     else echo "WireGuard PIA interface: DOWN!" >&3; return 1
   fi
 
+  echo "Region is: $(uci get network.$PIAWG_PEER.description)"
   if traceroute -i "$PIAWG_IF" -q1 -m1 1.1.1.1 | grep -q ' ms'; then
     echo "Connectivity through PIA: OK"
   elif ping -q -c1 -n -I "$WAN_IF" "$PIAWG_EP" >/dev/null; then
@@ -316,6 +344,7 @@ print_usage() {
   echo "    - watchdog remove    : remove the watchdog"
   echo "    - log show           : display the watchdog log"
   echo "    - log clear          : clear the watchdog log"
+  echo "    - log path           : set a custom Directory Path for the log"
   echo "    - update             : update the script to latest version"
 }
 
@@ -323,6 +352,7 @@ print_usage() {
 # ---- Main ->
 
 [ -e "$PIACONF" ] || touch "$PIACONF"
+PIALOG="$(logfile)"
 [ -t 0 ] && unset AUTO || AUTO=1
 
 # Logging (only if not in interactive mode)
@@ -381,6 +411,7 @@ case "$1" in
   'log') case "$2" in
     'show') log_show;;
     'clear') log_clear;;
+    'path') set_logpath;;
     *) echo "Unknown log subcommand '$2'!"; print_usage; exit 1;;
     esac;;
   'update') script_update;;
