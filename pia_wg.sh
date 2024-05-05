@@ -244,9 +244,10 @@ EOI
 }
 
 start_wgpia() {
+  echo "Stopping PIA ($(uci get network.$PIAWG_PEER.description))"
+  ifdown $PIAWG_IF >/dev/null 2>&1
   set_netconf
   echo "Starting PIA ($(uci get network.$PIAWG_PEER.description))"
-  ifdown $PIAWG_IF >/dev/null 2>&1
   ifup $PIAWG_IF
   sleep 1
   check_wg
