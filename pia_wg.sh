@@ -21,6 +21,7 @@ LOGNAME='pia_wg_watchdog.log'
 PIACONF='/etc/config/pia_wg'
 PIAWG_IF='wg_pia'
 PIAWG_PEER='wgpeer_pia'
+CURVERS="$(awk '(index($0,"# Version: ")==1){print $3; exit}' "$SCRIPTPATH")"
 
 read_yn() {
   while
@@ -311,7 +312,6 @@ log_clear() {
 
 script_update() {
   TMPDL="/tmp/pia_wg_dl.tmp"
-  CURVERS="$(awk '(index($0,"# Version: ")==1){print $3; exit}' "$SCRIPTPATH")"
   curl -s -o "$TMPDL" "$SCRIPTDL" || { echo "Failed to check/download latest version!" >&2; rm "$TMPDL"; exit 1; }
   MD5D="$(md5sum "$TMPDL"|cut -d' ' -f1)"
   MD5C="$(md5sum "$SCRIPTPATH"|cut -d' ' -f1)"
@@ -325,7 +325,7 @@ script_update() {
 }
 
 print_usage() {
-  echo "Usage: $0 { configure <section> | start [ --watchdog ] | restart [ --watchdog ] | stop | status | watchdog { install | remove } | log { show | clear | path } | update }"
+  echo "Usage: $0 { configure <section> | start [ --watchdog ] | restart [ --watchdog ] | stop | status | watchdog { install | remove } | log { show | clear | path } | update | version}"
   echo "  Details:"
   echo "    - configure          : same as configure all"
   echo "    - configure all      : configure all settings"
@@ -346,6 +346,7 @@ print_usage() {
   echo "    - log clear          : clear the watchdog log"
   echo "    - log path           : set a custom Directory Path for the log"
   echo "    - update             : update the script to latest version"
+  echo "    - version            : print the version and exit"
 }
 
 
@@ -415,6 +416,7 @@ case "$1" in
     *) echo "Unknown log subcommand '$2'!"; print_usage; exit 1;;
     esac;;
   'update') script_update;;
+  'version') echo "Version is ${CURVERS}";;
   '') print_usage;;
   *) echo "Unknown command '$*'!" >&2; print_usage; exit 1;;
 esac
