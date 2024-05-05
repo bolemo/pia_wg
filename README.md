@@ -68,7 +68,7 @@ When the watchdog is enabled, the scripts log is located in `/var/log/pia_wg_wat
 The log can be displayed using `pia_wg.sh log show` and cleared using `pia_wg_sh log clear`
 
 ## Usage
-Usage: `pia_wg.sh { configure <section> | start [ --watchdog ] | restart [ --watchdog ] | stop | status | watchdog { install | remove } | log { show | clear | path } | update }
+Usage: `pia_wg.sh { configure <section> | start [ --watchdog ] | restart [ --watchdog ] | stop | status | watchdog { install | remove } | log { show | clear | path } | update | version}
 <br/>  Details:
   - `configure`          : same as configure all
   - `configure all`      : configure all settings
@@ -89,6 +89,7 @@ Usage: `pia_wg.sh { configure <section> | start [ --watchdog ] | restart [ --wat
   - `log clear`          : clear the watchdog log
   - `log path`           : set a custom Directory Path for the log
   - `update`             : update the script to latest version
+  - `version`            : print the version and exit
 
 ## Notes
 Please, take into account that the script is only creating and setting up the WireGuard interface. It is up to the user to set up/adapt his firewall zones (either including the interface in the WAN zone, or creating a specific zone for it named VPN, PIA or whichever name you want).
