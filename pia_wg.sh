@@ -361,7 +361,7 @@ script_update() {
   MD5C="$(md5sum "$SCRIPTPATH"|cut -d' ' -f1)"
   [ "$MD5D" = "$MD5C" ] && { echo "This is already latest version ($CURVERS)"; rm "$TMPDL"; exit; }
   NEWVERS="$(awk '(index($0,"# Version: ")==1){print $3; exit}' "$TMPDL")"
-  read_yn "Version $NEWVERS is available; install" || { rm "$TMPDL"; exit; }
+  read_yn "Version $NEWVERS is available (current: $CURVERS); install" || { rm "$TMPDL"; exit; }
   echo "Upgrading from version $CURVERS to version $NEWVERS"
   mv "$TMPDL" "$SCRIPTPATH"
   chmod +x "$SCRIPTPATH"
