@@ -112,6 +112,34 @@ set_piauser() {
 EOI
 }
 
+validate_dip() {
+  DIPTOK="$(uci -q get pia_wg.@dip[0].token)" || return
+  DIPR="$(curl -s -L -X POST 'https://www.privateinternetaccess.com/api/client/v2/dedicated_ip' --header 'Content-Type: application/json' --header "Authorization: Token $(uci -q get pia_wg.@token[0].hash)" -d '{ "tokens":["'"$DIPTOK"'"] }' | jq 'select(.[0]) | .[0]')"
+  [ -z "$DIPTOK" ] && return
+  uci -q batch << EOI >/dev/null
+  set pia_wg.@dip[0].status="$(echo "$DIPR" | jq -r 'select(.status) | .status' )"
+  set pia_wg.@dip[0].ip="$(echo "$DIPR" | jq -r 'select(.ip) | .ip' )"
+  set pia_wg.@dip[0].cn="$(echo "$DIPR" | jq -r 'select(.cn) | .cn' )"
+  set pia_wg.@dip[0].expire="$(echo "$DIPR" | jq -r 'select(.dip_expire) | .dip_expire' )"
+  set pia_wg.@dip[0].id="$(echo "$DIPR" | jq -r 'select(.ip) | .id' )"
+  commit pia_wg.@dip[0]
+EOI
+}
+
+set_dip() {
+  while { printf "Dedicated IP token (press enter for none): "; read DIPTOK; } do
+    [ -z "$DIPTOK" ] && { uci -q delete pia_wg.@dip[0]; uci -q commit pia_wg; return; }
+    [ ${#DIPTOK} -eq 32 ] && [ "${DIPTOK:0:3}" = "DIP" ] && break
+    echo "Token starts with DIP and is 32 characters long!"
+  done
+  uci -q batch << EOI >/dev/null
+    delete pia_wg.@dip[0]
+    add pia_wg dip
+    set pia_wg.@dip[0].token="$DIPTOK"
+    commit pia_wg.@dip[0]
+EOI
+}
+
 set_defnetpeer() {
   uci -q batch << EOI >/dev/null
     delete pia_wg.@net_peer[0]
@@ -168,6 +196,7 @@ keep_conf_section() {
     net_interface) DESC='WireGuard network interface options';;
     net_peer) DESC='WireGuard network PIA peer options';;
     region) DESC='PIA region';;
+    dip) DESC="Dedicated IP token";;
   esac
   if uci -q get pia_wg.@$1[0] >/dev/null; then
     echo "A configuration already exists for '$DESC':"
@@ -190,6 +219,14 @@ check_conf() {
   uci -q get pia_wg.@net_peer[0] >/dev/null \
     && echo "Network peer options are configured" \
     || {  echo "Network peer options are not configured!" >&3; sleep 1; [ "$AUTO" ] && return 1 || set_defnetpeer; }
+  if uci -q get pia_wg.@dip[0] >/dev/null; then
+    echo "Dedicated IP is configured"
+    validate_dip
+    DIP_STATUS="$(uci -q get pia_wg.@dip[0].status)"
+    [ "$DIP_STATUS" = 'active' ] \
+    && echo "Dedicated IP is active" \
+    || {  echo "Dedicated IP status is $DIP_STATUS!" >&3; sleep 1; return 1; }
+  fi
   uci -q get pia_wg.@region[0] >/dev/null \
     && echo "PIA region is configured" \
     || {  echo "PIA region is not configured!" >&3; sleep 1; [ "$AUTO" ] && return 1 || select_region; }
@@ -199,7 +236,13 @@ set_netconf() {
   check_conf || { echo "Configuration is incomplete; exiting!" >&3; exit 1; }
   uci -q get pia_wg.@token[0] >/dev/null && [ $(($(date +%s) - $(uci get pia_wg.@token[0].timestamp))) -lt 86400 ] || renew_piatoken
   echo "Initializing network"
-  PIAADDKEY="$(curl -s -k -G --data-urlencode "pt=$(uci -q get pia_wg.@token[0].hash)" --data-urlencode "pubkey=$(uci -q get pia_wg.@keys[0].pub)" "https://$(uci -q get pia_wg.@region[0].dns):1337/addKey")"
+
+  # if no DIP (DIP_STATUS is set from check_conf)
+  if [ -z "$DIP_STATUS" ]; then
+    PIAADDKEY="$(curl -s -k -G --data-urlencode "pt=$(uci -q get pia_wg.@token[0].hash)" --data-urlencode "pubkey=$(uci -q get pia_wg.@keys[0].pub)" "https://$(uci -q get pia_wg.@region[0].dns):1337/addKey")"
+  else
+    PIAADDKEY="$(curl -s -k -G --connect-to "$(uci -q get pia_wg.@dip[0].cn)::$(uci -q get pia_wg.@dip[0].ip)" --user "dedicated_ip_$(uci -q get pia_wg.@dip[0].token):$(uci -q get pia_wg.@dip[0].ip)" --data-urlencode "pubkey=$(uci -q get pia_wg.@keys[0].pub)" "https://$(uci -q get pia_wg.@dip[0].cn):1337/addKey")"
+  fi
 #  echo "$PIAADDKEY"
 
   WGSERVSTATUS="$(echo "$PIAADDKEY" | jq -r '.status')"
@@ -331,6 +374,7 @@ print_usage() {
   echo "    - configure          : same as configure all"
   echo "    - configure all      : configure all settings"
   echo "    - configure user     : set PIA user ID and password"
+  echo "    - configure dip      : set PIA dedicated IP"
   echo "    - configure region   : set/choose PIA region"
   echo "    - configure keys     : generate local WireGuard keys"
   echo "    - configure network  : generate default network settings"
@@ -378,9 +422,18 @@ case "$1" in
       keep_conf_section 'keys' || generate_wgkeys
       keep_conf_section 'net_interface' || set_defnetiface
       keep_conf_section 'net_peer' || set_defnetpeer
-      keep_conf_section 'region' || select_region
+      if read_yn "Do you have a dedicated IP"; then
+        keep_conf_section 'dip' || set_dip
+        validate_dip
+      else
+        uci -q delete pia_wg.@dip[0]
+        uci -q commit pia_wg
+      fi
+      # if no DIP ask for region
+      uci -q get pia_wg.@dip[0].token >/dev/null || keep_conf_section 'region' || select_region
       ;;
     'user') keep_conf_section 'user' || set_piauser;;
+    'dip') keep_conf_section 'dip' || set_dip;;
     'region') keep_conf_section 'region' || select_region;;
     'network')
       keep_conf_section 'net_interface' || set_defnetiface
