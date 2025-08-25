@@ -7,7 +7,7 @@
 # - This thread: https://forum.openwrt.org/t/private-internet-access-pia-wireguard-vpn-on-openwrt/155475
 # - And @Lazerdog's script: https://github.com/jimhall718/piawg/blob/main/piawgx.sh
 #
-# Version: 1.0.10
+# Version: 1.0.11
 #
 # ©2025 bOLEMO
 # https://github.com/bolemo/pia_wg/
@@ -179,7 +179,7 @@ renew_piatoken() {
   echo "Renewing PIA token" >&3
   uci -q get pia_wg.@user[0] >/dev/null || set_piauser
   
-  PIARESPONSE="$(curl -s -d "username=$(uci -q get pia_wg.@user[0].id)&password=$(uci -q get pia_wg.@user[0].password)" https://www.privateinternetaccess.com/api/client/v2/token)"
+  PIARESPONSE="$(curl -s --data-urlencode "username=$(uci -q get pia_wg.@user[0].id)" --data-urlencode "password=$(uci -q get pia_wg.@user[0].password)" https://www.privateinternetaccess.com/api/client/v2/token)"
   
   # Check if curl failed
   if [ $? -ne 0 ]; then
