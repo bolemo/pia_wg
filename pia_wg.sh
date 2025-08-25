@@ -7,9 +7,9 @@
 # - This thread: https://forum.openwrt.org/t/private-internet-access-pia-wireguard-vpn-on-openwrt/155475
 # - And @Lazerdog's script: https://github.com/jimhall718/piawg/blob/main/piawgx.sh
 #
-# Version: 1.0.9
+# Version: 1.0.10
 #
-# ©2024 bOLEMO
+# ©2025 bOLEMO
 # https://github.com/bolemo/pia_wg/
 #
 #########
@@ -176,10 +176,40 @@ EOI
 }
 
 renew_piatoken() {
-  echo "Renewing PIA token"
+  echo "Renewing PIA token" >&3
   uci -q get pia_wg.@user[0] >/dev/null || set_piauser
-  PIATOKEN="$(curl -s -d "username=$(uci -q get pia_wg.@user[0].id)&password=$(uci -q get pia_wg.@user[0].password)" https://www.privateinternetaccess.com/api/client/v2/token | jq -r .token)"
-  [ ${#PIATOKEN} -eq 128 ] || { echo "Error fetching PIA token!" >&3; exit 1; }
+  
+  PIARESPONSE="$(curl -s -d "username=$(uci -q get pia_wg.@user[0].id)&password=$(uci -q get pia_wg.@user[0].password)" https://www.privateinternetaccess.com/api/client/v2/token)"
+  
+  # Check if curl failed
+  if [ $? -ne 0 ]; then
+    echo "Error: Failed to connect to PIA authentication server!" >&3
+    exit 1
+  fi
+  
+  # Check if response is empty
+  if [ -z "$PIARESPONSE" ]; then
+    echo "Error: Empty response from PIA authentication server!" >&3
+    exit 1
+  fi
+  
+  # Check if response contains valid JSON with token field
+  PIATOKEN="$(echo "$PIARESPONSE" | jq -r .token 2>/dev/null)"
+  
+  # Validate token format and handle errors
+  if [ "$PIATOKEN" = "null" ] || [ -z "$PIATOKEN" ] || [ ${#PIATOKEN} -ne 128 ]; then
+    echo "Error fetching PIA token!" >&3
+    echo "Debug: Server response was:" >&3
+    echo "$PIARESPONSE" | head -3 >&3
+    # Check for common error patterns
+    if echo "$PIARESPONSE" | jq -r .error 2>/dev/null | grep -q .; then
+      echo "PIA Error: $(echo "$PIARESPONSE" | jq -r .error)" >&3
+    elif echo "$PIARESPONSE" | grep -qi "invalid\|unauthorized\|credentials"; then
+      echo "Hint: Check your PIA username and password" >&3
+    fi
+    exit 1
+  fi
+  
   uci -q batch << EOI >/dev/null
     delete pia_wg.@token[0]
     add pia_wg token
@@ -288,20 +318,21 @@ EOI
 }
 
 start_wgpia() {
-  echo "Stopping PIA ($(uci get network.$PIAWG_PEER.description))"
-  ifdown $PIAWG_IF >/dev/null 2>&1
+  stop_wgpia
   set_netconf
-  echo "Starting PIA ($(uci get network.$PIAWG_PEER.description))"
+  echo "Starting PIA ($(uci get network.$PIAWG_PEER.description))" >&3
   ifup $PIAWG_IF
   sleep 1
   check_wg
-  [ $? -eq 0 ] && echo "PIA started successfully ($(uci get network.$PIAWG_PEER.description))" >&3 || echo "Could not start PIA!" >&3
-  return $?
+  RET=$?
+  [ $RET -eq 0 ] && echo "PIA started successfully ..." >&3 || echo "Could not start PIA!" >&3
+  return $RET
 }
 
 stop_wgpia() {
-  echo "Stopping PIA" >&3
-  ifdown $PIAWG_IF
+  DESC=" ($(uci -q get network.$PIAWG_PEER.description))" || DESC=""
+  echo "Stopping PIA$DESC" >&3
+  ifdown $PIAWG_IF >/dev/null 2>&1
 }
 
 check_wg() {
