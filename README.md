@@ -7,7 +7,7 @@ A script to setup and run PIA through WireGuard on OpenWrt
   - And @Lazerdog's script: https://github.com/jimhall718/piawg/blob/main/piawgx.sh
 
 ## Version
-1.0.10
+1.0.11
 
 ## Install
   - Connect to your OpenWrt router with SSH
@@ -73,6 +73,7 @@ Usage: `pia_wg.sh { configure <section> | start [ --watchdog ] | restart [ --wat
   - `configure`          : same as configure all
   - `configure all`      : configure all settings
   - `configure user`     : set PIA user ID and password
+  - `configure dip`      : set PIA dedicated IP
   - `configure region`   : set/choose PIA region
   - `configure keys`     : generate local WireGuard keys
   - `configure network`  : generate default network settings
