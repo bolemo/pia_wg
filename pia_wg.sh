@@ -25,24 +25,27 @@ CURVERS="$(awk '(index($0,"# Version: ")==1){print $3; exit}' "$SCRIPTPATH")"
 
 read_yn() {
   while
-    printf "$1? (y/n):"; read ANS
-    echo "$ANS" | grep -qvi '^\(y\(es\)\?\|no\?\)$'
+    printf "%s? (y/n):" "$1"
+    read -r AND
+    echo "$AND" | grep -qvi '^\(y\(es\)\?\|no\?\)$'
   do :; done
-  case "$ANS" in
-    n|N|no|No|nO|NO) return 1;;
-    *) return 0;;
+  case "$AND" in
+  n | N | no | No | nO | NO) return 1 ;;
+  *) return 0 ;;
   esac
 }
 
 set_logpath() {
-  if [ "$1" ]; then LOGPATH="$1"
+  if [ "$1" ]; then
+    LOGPATH="$1"
   else
     LOGPATH="$(uci -q get pia_wg.@log[0].path)"
     echo "Current Directory Path is: $LOGPATH"
-    printf "Enter the Directory Path for the log (press enter to keep current one): "; read NEWLOGPATH
+    printf "Enter the Directory Path for the log (press enter to keep current one): "
+    read -r NEWLOGPATH
     [ -z "$NEWLOGPATH" ] || LOGPATH="$NEWLOGPATH"
   fi
-  uci -q batch << EOI >/dev/null
+  uci -q batch <<EOI >/dev/null
     delete pia_wg.@log[0]
     add pia_wg log
     set pia_wg.@log[0].path="$LOGPATH"
@@ -62,18 +65,22 @@ logfile() {
 
 select_region() {
   echo "Fetching latest PIA servers list…"
-  PIAREGIONS="$(curl -s https://serverlist.piaservers.net/vpninfo/servers/v6 | head -1 | jq '.regions | sort_by(.name)')"
-  [ $? -eq 0 ] || { echo "Error fetching PIA servers list!" >&3; exit 1; }
+  if ! PIAREGIONS="$(curl -s https://serverlist.piaservers.net/vpninfo/servers/v6 | head -1 | jq '.regions | sort_by(.name)')"; then
+    echo "Error fetching PIA servers list!" >&3
+    exit 1
+  fi
   while :; do
-    printf "Type the region ID if you know it or press enter for list selection: "; read PIAREGIONID;
-    if [ -z "$PIAREGIONID" ]
-      then break
+    printf "Type the region ID if you know it or press enter for list selection: "
+    read -r PIAREGIONID
+    if [ -z "$PIAREGIONID" ]; then
+      break
+    else
+      PIAREGIONNAME="$(echo "$PIAREGIONS" | jq -r ".[] | select(.id==\"$PIAREGIONID\") | .name")"
+      if [ -z "$PIAREGIONNAME" ]; then
+        echo "Invalid region ID: '$PIAREGIONID'"
       else
-        PIAREGIONNAME="$(echo "$PIAREGIONS" | jq -r ".[] | select(.id==\"$PIAREGIONID\") | .name")"
-        if [ -z "$PIAREGIONNAME" ]
-          then echo "Invalid region ID: '$PIAREGIONID'"
-          else break
-        fi
+        break
+      fi
     fi
   done
   if [ -z "$PIAREGIONID" ]; then
@@ -82,13 +89,14 @@ select_region() {
     read_yn "Port forward only servers" && PIASERVPF='| select(.port_forward==true) ' || PIASERVPF=''
     read_yn "Geo only servers" && PIASERVGEO='| select(.geo==true) ' || PIASERVGEO=''
     echo "$PIAREGIONS" | jq -r ".[] | select(.offline==false) | select(.servers.wg) $PIASERVPF $PIASERVGEO | .name" | nl -v0
-    printf "Select your region number: "; read ANS
-    PIAREGIONID="$(echo "$PIAREGIONS" | jq -r "[.[] | select(.offline==false) | select(.servers.wg) $PIASERVPF $PIASERVGEO ][$ANS].id")"
+    printf "Select your region number: "
+    read -r AND
+    PIAREGIONID="$(echo "$PIAREGIONS" | jq -r "[.[] | select(.offline==false) | select(.servers.wg) $PIASERVPF $PIASERVGEO ][$AND].id")"
   fi
   PIAREGIONNAME="$(echo "$PIAREGIONS" | jq -r ".[] | select(.id==\"$PIAREGIONID\") | .name")"
   PIAREGIONDNS="$(echo "$PIAREGIONS" | jq -r ".[] | select(.id==\"$PIAREGIONID\") | .dns")"
   echo "Region selected: $PIAREGIONNAME"
-  uci -q batch << EOI >/dev/null
+  uci -q batch <<EOI >/dev/null
     delete pia_wg.@region[0]
     add pia_wg region
     set pia_wg.@region[0].id="$PIAREGIONID"
@@ -100,10 +108,13 @@ EOI
 
 set_piauser() {
   printf "PIA user id: "
-  read PIAUSER
+  read -r PIAUSER
   printf "PIA password: "
-  stty -echo; read PIAPASS; stty echo; printf "\n"
-  uci -q batch << EOI >/dev/null
+  stty -echo
+  read -r PIAPASS
+  stty echo
+  printf "\n"
+  uci -q batch <<EOI >/dev/null
     delete pia_wg.@user[0]
     add pia_wg user
     set pia_wg.@user[0].id="$PIAUSER"
@@ -116,23 +127,30 @@ validate_dip() {
   DIPTOK="$(uci -q get pia_wg.@dip[0].token)" || return
   DIPR="$(curl -s -L -X POST 'https://www.privateinternetaccess.com/api/client/v2/dedicated_ip' --header 'Content-Type: application/json' --header "Authorization: Token $(uci -q get pia_wg.@token[0].hash)" -d '{ "tokens":["'"$DIPTOK"'"] }' | jq 'select(.[0]) | .[0]')"
   [ -z "$DIPTOK" ] && return
-  uci -q batch << EOI >/dev/null
-  set pia_wg.@dip[0].status="$(echo "$DIPR" | jq -r 'select(.status) | .status' )"
-  set pia_wg.@dip[0].ip="$(echo "$DIPR" | jq -r 'select(.ip) | .ip' )"
-  set pia_wg.@dip[0].cn="$(echo "$DIPR" | jq -r 'select(.cn) | .cn' )"
-  set pia_wg.@dip[0].expire="$(echo "$DIPR" | jq -r 'select(.dip_expire) | .dip_expire' )"
-  set pia_wg.@dip[0].id="$(echo "$DIPR" | jq -r 'select(.ip) | .id' )"
+  uci -q batch <<EOI >/dev/null
+  set pia_wg.@dip[0].status="$(echo "$DIPR" | jq -r 'select(.status) | .status')"
+  set pia_wg.@dip[0].ip="$(echo "$DIPR" | jq -r 'select(.ip) | .ip')"
+  set pia_wg.@dip[0].cn="$(echo "$DIPR" | jq -r 'select(.cn) | .cn')"
+  set pia_wg.@dip[0].expire="$(echo "$DIPR" | jq -r 'select(.dip_expire) | .dip_expire')"
+  set pia_wg.@dip[0].id="$(echo "$DIPR" | jq -r 'select(.ip) | .id')"
   commit pia_wg.@dip[0]
 EOI
 }
 
 set_dip() {
-  while { printf "Dedicated IP token (press enter for none): "; read DIPTOK; } do
-    [ -z "$DIPTOK" ] && { uci -q delete pia_wg.@dip[0]; uci -q commit pia_wg; return; }
-    [ ${#DIPTOK} -eq 32 ] && [ "${DIPTOK:0:3}" = "DIP" ] && break
+  while {
+    printf "Dedicated IP token (press enter for none): "
+    read -r DIPTOK
+  }; do
+    [ -z "$DIPTOK" ] && {
+      uci -q delete pia_wg.@dip[0]
+      uci -q commit pia_wg
+      return
+    }
+    [ ${#DIPTOK} -eq 32 ] && [ "$(printf '%.3s' "$DIPTOK")" = "DIP" ] && break
     echo "Token starts with DIP and is 32 characters long!"
   done
-  uci -q batch << EOI >/dev/null
+  uci -q batch <<EOI >/dev/null
     delete pia_wg.@dip[0]
     add pia_wg dip
     set pia_wg.@dip[0].token="$DIPTOK"
@@ -141,7 +159,7 @@ EOI
 }
 
 set_defnetpeer() {
-  uci -q batch << EOI >/dev/null
+  uci -q batch <<EOI >/dev/null
     delete pia_wg.@net_peer[0]
     add pia_wg net_peer
     set pia_wg.@net_peer[0].route_allowed_ips='1'
@@ -153,7 +171,7 @@ EOI
 }
 
 set_defnetiface() {
-  uci -q batch << EOI >/dev/null
+  uci -q batch <<EOI >/dev/null
     delete pia_wg.@net_interface[0]
     add pia_wg net_interface
     set pia_wg.@net_interface[0].proto="wireguard"
@@ -166,7 +184,7 @@ EOI
 generate_wgkeys() {
   WGPRIVKEY="$(wg genkey)"
   WGPUBKEY="$(echo "$WGPRIVKEY" | wg pubkey)"
-  uci -q batch << EOI >/dev/null
+  uci -q batch <<EOI >/dev/null
     delete pia_wg.@keys[0]
     add pia_wg keys
     set pia_wg.@keys[0].priv="$WGPRIVKEY"
@@ -178,24 +196,21 @@ EOI
 renew_piatoken() {
   echo "Renewing PIA token" >&3
   uci -q get pia_wg.@user[0] >/dev/null || set_piauser
-  
-  PIARESPONSE="$(curl -s --data-urlencode "username=$(uci -q get pia_wg.@user[0].id)" --data-urlencode "password=$(uci -q get pia_wg.@user[0].password)" https://www.privateinternetaccess.com/api/client/v2/token)"
-  
-  # Check if curl failed
-  if [ $? -ne 0 ]; then
+
+  if ! PIARESPONSE="$(curl -s --data-urlencode "username=$(uci -q get pia_wg.@user[0].id)" --data-urlencode "password=$(uci -q get pia_wg.@user[0].password)" https://www.privateinternetaccess.com/api/client/v2/token)"; then
     echo "Error: Failed to connect to PIA authentication server!" >&3
     exit 1
   fi
-  
+
   # Check if response is empty
   if [ -z "$PIARESPONSE" ]; then
     echo "Error: Empty response from PIA authentication server!" >&3
     exit 1
   fi
-  
+
   # Check if response contains valid JSON with token field
   PIATOKEN="$(echo "$PIARESPONSE" | jq -r .token 2>/dev/null)"
-  
+
   # Validate token format and handle errors
   if [ "$PIATOKEN" = "null" ] || [ -z "$PIATOKEN" ] || [ ${#PIATOKEN} -ne 128 ]; then
     echo "Error fetching PIA token!" >&3
@@ -209,8 +224,8 @@ renew_piatoken() {
     fi
     exit 1
   fi
-  
-  uci -q batch << EOI >/dev/null
+
+  uci -q batch <<EOI >/dev/null
     delete pia_wg.@token[0]
     add pia_wg token
     set pia_wg.@token[0].hash="$PIATOKEN"
@@ -221,49 +236,77 @@ EOI
 
 keep_conf_section() {
   case "$1" in
-    user) DESC='PIA user';;
-    keys) DESC='WireGuard local keys';;
-    net_interface) DESC='WireGuard network interface options';;
-    net_peer) DESC='WireGuard network PIA peer options';;
-    region) DESC='PIA region';;
-    dip) DESC="Dedicated IP token";;
+  user) DESC='PIA user' ;;
+  keys) DESC='WireGuard local keys' ;;
+  net_interface) DESC='WireGuard network interface options' ;;
+  net_peer) DESC='WireGuard network PIA peer options' ;;
+  region) DESC='PIA region' ;;
+  dip) DESC="Dedicated IP token" ;;
   esac
-  if uci -q get pia_wg.@$1[0] >/dev/null; then
+  if uci -q get "pia_wg.@$1[0]" >/dev/null; then
     echo "A configuration already exists for '$DESC':"
-    uci show pia_wg.@$1[0] | awk 'sub(/^[^.]*\.[^.]*\./,"")==1{print "  "$0}'
-    read_yn "Keep this configuration"; return $?
+    uci show "pia_wg.@$1[0]" | awk 'sub(/^[^.]*\.[^.]*\./,"")==1{print "  "$0}'
+    read_yn "Keep this configuration"
+    return $?
   fi
   return 1
 }
 
 check_conf() {
-  uci -q get pia_wg.@user[0] >/dev/null \
-    && echo "User is configured" \
-    || { echo "User is not configured!" >&3; sleep 1; [ "$AUTO" ] && return 1 || set_piauser; }
-  uci -q get pia_wg.@keys[0] >/dev/null \
-    && echo "Local keys are configured" \
-    || {  echo "Local keys are not configured!" >&3; sleep 1; generate_wgkeys; }
-  uci -q get pia_wg.@net_interface[0] >/dev/null \
-    &&  echo "Network interface options are configured" \
-    || {  echo "Network interface options are not configured!" >&3; sleep 1; [ "$AUTO" ] && return 1 || set_defnetiface; }
-  uci -q get pia_wg.@net_peer[0] >/dev/null \
-    && echo "Network peer options are configured" \
-    || {  echo "Network peer options are not configured!" >&3; sleep 1; [ "$AUTO" ] && return 1 || set_defnetpeer; }
+  uci -q get pia_wg.@user[0] >/dev/null &&
+    echo "User is configured" ||
+    {
+      echo "User is not configured!" >&3
+      sleep 1
+      [ "$AUTO" ] && return 1 || set_piauser
+    }
+  uci -q get pia_wg.@keys[0] >/dev/null &&
+    echo "Local keys are configured" ||
+    {
+      echo "Local keys are not configured!" >&3
+      sleep 1
+      generate_wgkeys
+    }
+  uci -q get pia_wg.@net_interface[0] >/dev/null &&
+    echo "Network interface options are configured" ||
+    {
+      echo "Network interface options are not configured!" >&3
+      sleep 1
+      [ "$AUTO" ] && return 1 || set_defnetiface
+    }
+  uci -q get pia_wg.@net_peer[0] >/dev/null &&
+    echo "Network peer options are configured" ||
+    {
+      echo "Network peer options are not configured!" >&3
+      sleep 1
+      [ "$AUTO" ] && return 1 || set_defnetpeer
+    }
   if uci -q get pia_wg.@dip[0] >/dev/null; then
     echo "Dedicated IP is configured"
     validate_dip
     DIP_STATUS="$(uci -q get pia_wg.@dip[0].status)"
-    [ "$DIP_STATUS" = 'active' ] \
-    && echo "Dedicated IP is active" \
-    || {  echo "Dedicated IP status is $DIP_STATUS!" >&3; sleep 1; return 1; }
+    [ "$DIP_STATUS" = 'active' ] &&
+      echo "Dedicated IP is active" ||
+      {
+        echo "Dedicated IP status is $DIP_STATUS!" >&3
+        sleep 1
+        return 1
+      }
   fi
-  uci -q get pia_wg.@region[0] >/dev/null \
-    && echo "PIA region is configured" \
-    || {  echo "PIA region is not configured!" >&3; sleep 1; [ "$AUTO" ] && return 1 || select_region; }
+  uci -q get pia_wg.@region[0] >/dev/null &&
+    echo "PIA region is configured" ||
+    {
+      echo "PIA region is not configured!" >&3
+      sleep 1
+      [ "$AUTO" ] && return 1 || select_region
+    }
 }
 
 set_netconf() {
-  check_conf || { echo "Configuration is incomplete; exiting!" >&3; exit 1; }
+  check_conf || {
+    echo "Configuration is incomplete; exiting!" >&3
+    exit 1
+  }
   uci -q get pia_wg.@token[0] >/dev/null && [ $(($(date +%s) - $(uci get pia_wg.@token[0].timestamp))) -lt 86400 ] || renew_piatoken
   echo "Initializing network"
 
@@ -273,10 +316,13 @@ set_netconf() {
   else
     PIAADDKEY="$(curl -s -k -G --connect-to "$(uci -q get pia_wg.@dip[0].cn)::$(uci -q get pia_wg.@dip[0].ip)" --user "dedicated_ip_$(uci -q get pia_wg.@dip[0].token):$(uci -q get pia_wg.@dip[0].ip)" --data-urlencode "pubkey=$(uci -q get pia_wg.@keys[0].pub)" "https://$(uci -q get pia_wg.@dip[0].cn):1337/addKey")"
   fi
-#  echo "$PIAADDKEY"
+  #  echo "$PIAADDKEY"
 
   WGSERVSTATUS="$(echo "$PIAADDKEY" | jq -r '.status')"
-  [ "$WGSERVSTATUS" = "OK" ] || { echo "PIA server status: $WGSERVSTATUS; Aborting!" >&3; exit 1; }
+  [ "$WGSERVSTATUS" = "OK" ] || {
+    echo "PIA server status: $WGSERVSTATUS; Aborting!" >&3
+    exit 1
+  }
 
   WGSERVIP="$(echo "$PIAADDKEY" | jq -r '.server_ip')"
   WGSERVPT="$(echo "$PIAADDKEY" | jq -r '.server_port')"
@@ -285,7 +331,7 @@ set_netconf() {
   WGDNS2="$(echo "$PIAADDKEY" | jq -r '.dns_servers[1]')"
   WGPEERIP="$(echo "$PIAADDKEY" | jq -r '.peer_ip')"
 
-  uci -q batch << EOI >/dev/null
+  uci -q batch <<EOI >/dev/null
   delete network.$PIAWG_IF
   delete network.$PIAWG_PEER
   set network.$PIAWG_IF=interface
@@ -337,27 +383,34 @@ stop_wgpia() {
 
 check_wg() {
   if wg show "$PIAWG_IF" >/dev/null 2>&1; then
-      PIAWG_EP="$(wg show "$PIAWG_IF" endpoints | awk -F'[[:space:]:]' '{print $2; exit;}')"
-      PIAWG_MK="$(wg show "$PIAWG_IF" fwmark)"; [ "$PIAWG_MK" = "off" ] && PIAWG_MK='' || PIAWG_MK="mark $PIAWG_MK"
-      WAN_IF="$(ip route get "$PIAWG_EP" $VPN_MK | awk '{for(i=0;i<NF;i++){if($i=="dev"){print $++i; exit;}}}')"
-      echo "WireGuard PIA interface: UP"
-    else echo "WireGuard PIA interface: DOWN!" >&3; return 1
+    PIAWG_EP="$(wg show "$PIAWG_IF" endpoints | awk -F'[[:space:]:]' '{print $2; exit;}')"
+    PIAWG_MK="$(wg show "$PIAWG_IF" fwmark)"
+    [ "$PIAWG_MK" = "off" ] && PIAWG_MK='' || PIAWG_MK="mark $PIAWG_MK"
+    WAN_IF="$(ip route get "$PIAWG_EP" "$PIAWG_MK" | awk '{for(i=0;i<NF;i++){if($i=="dev"){print $++i; exit;}}}')"
+    echo "WireGuard PIA interface: UP"
+  else
+    echo "WireGuard PIA interface: DOWN!" >&3
+    return 1
   fi
 
   echo "Region is: $(uci get network.$PIAWG_PEER.description)"
   if traceroute -i "$PIAWG_IF" -q1 -m1 1.1.1.1 | grep -q ' ms'; then
     echo "Connectivity through PIA: OK"
   elif ping -q -c1 -n -I "$WAN_IF" "$PIAWG_EP" >/dev/null; then
-    echo "Connectivity through PIA: NOK" >&3; return 1
+    echo "Connectivity through PIA: NOK" >&3
+    return 1
   elif traceroute -i "$WAN_IF" -q1 -m1 1.1.1.1 | grep -q ' ms'; then
-    echo "Access to PIA Endpoint through WAN: NOK!" >&3; return 1
+    echo "Access to PIA Endpoint through WAN: NOK!" >&3
+    return 1
   else
-    echo "Connectivity through PIA: NOK" >&3; return 1
+    echo "Connectivity through PIA: NOK" >&3
+    return 1
   fi
 }
 
 watchdog_installed() {
-  grep -qF 'pia_wg.sh start' /etc/crontabs/root 2>/dev/null; return $?
+  grep -qF 'pia_wg.sh start' /etc/crontabs/root 2>/dev/null
+  return $?
 }
 
 watchdog_lastrun() {
@@ -366,7 +419,10 @@ watchdog_lastrun() {
 
 watchdog_install() {
   watchdog_installed && return
-  { crontab -l; echo "* * * * * /bin/sh $SCRIPTPATH start # pia_wg watchdog"; } | crontab -
+  {
+    crontab -l
+    echo "* * * * * /bin/sh $SCRIPTPATH start # pia_wg watchdog"
+  } | crontab -
   echo "[$(date)] Watchdog installed" >>"$PIALOG"
 }
 
@@ -387,12 +443,23 @@ log_clear() {
 
 script_update() {
   TMPDL="/tmp/pia_wg_dl.tmp"
-  curl -s -o "$TMPDL" "$SCRIPTDL" || { echo "Failed to check/download latest version!" >&2; rm "$TMPDL"; exit 1; }
-  MD5D="$(md5sum "$TMPDL"|cut -d' ' -f1)"
-  MD5C="$(md5sum "$SCRIPTPATH"|cut -d' ' -f1)"
-  [ "$MD5D" = "$MD5C" ] && { echo "This is already latest version ($CURVERS)"; rm "$TMPDL"; exit; }
+  curl -s -o "$TMPDL" "$SCRIPTDL" || {
+    echo "Failed to check/download latest version!" >&2
+    rm "$TMPDL"
+    exit 1
+  }
+  MD5D="$(md5sum "$TMPDL" | cut -d' ' -f1)"
+  MD5C="$(md5sum "$SCRIPTPATH" | cut -d' ' -f1)"
+  [ "$MD5D" = "$MD5C" ] && {
+    echo "This is already latest version ($CURVERS)"
+    rm "$TMPDL"
+    exit
+  }
   NEWVERS="$(awk '(index($0,"# Version: ")==1){print $3; exit}' "$TMPDL")"
-  read_yn "Version $NEWVERS is available (current: $CURVERS); install" || { rm "$TMPDL"; exit; }
+  read_yn "Version $NEWVERS is available (current: $CURVERS); install" || {
+    rm "$TMPDL"
+    exit
+  }
   echo "Upgrading from version $CURVERS to version $NEWVERS"
   mv "$TMPDL" "$SCRIPTPATH"
   chmod +x "$SCRIPTPATH"
@@ -425,7 +492,6 @@ print_usage() {
   echo "    - version            : print the version and exit"
 }
 
-
 # ---- Main ->
 
 [ -e "$PIACONF" ] || touch "$PIACONF"
@@ -436,7 +502,12 @@ PIALOG="$(logfile)"
 if [ "$AUTO" ]; then
   FIFO="$(mktemp -u /tmp/pia_wg.XXXXXXXXXX)"
   export FIFO
-  _exit() { exec 3>&-; rm "$FIFO" >/dev/null 2>&1; exit; }
+  # shellcheck disable=SC2329  # Function is used in trap below
+  _exit() {
+    exec 3>&-
+    rm "$FIFO" >/dev/null 2>&1
+    exit
+  }
   trap "_exit" 1 2 3 6 EXIT
   [ -f "$PIALOG" ] && touch "$PIALOG" || echo "[$(date)] Log created" >"$PIALOG"
   mkfifo "$FIFO"
@@ -447,63 +518,94 @@ else
 fi
 
 case "$1" in
-  'configure') case "$2" in
-    ''|'all')
-      keep_conf_section 'user' || set_piauser
-      keep_conf_section 'keys' || generate_wgkeys
-      keep_conf_section 'net_interface' || set_defnetiface
-      keep_conf_section 'net_peer' || set_defnetpeer
-      if read_yn "Do you have a dedicated IP"; then
-        keep_conf_section 'dip' || set_dip
-        validate_dip
-      else
-        uci -q delete pia_wg.@dip[0]
-        uci -q commit pia_wg
-      fi
-      # if no DIP ask for region
-      uci -q get pia_wg.@dip[0].token >/dev/null || keep_conf_section 'region' || select_region
-      ;;
-    'user') keep_conf_section 'user' || set_piauser;;
-    'dip') keep_conf_section 'dip' || set_dip;;
-    'region') keep_conf_section 'region' || select_region;;
-    'network')
-      keep_conf_section 'net_interface' || set_defnetiface
-      keep_conf_section 'net_peer' || set_defnetpeer
-      ;;
-    'keys') keep_conf_section 'keys' || generate_wgkeys;;
-    *) echo "Unknown configure subcommand '$2'!"; print_usage; exit 1;;
-    esac;;
-  'watchdog') case "$2" in
-    'install') watchdog_install;;
-    'remove') watchdog_remove;;
-    *) echo "Unknown watchdog subcommand '$2'!"; print_usage; exit 1;;
-    esac;;
-  'init-network') set_netconf;;
-  'restart') start_wgpia; R=$?
-    [ $R -eq 0 ] && [ "$2" = "--watchdog" ] && watchdog_install
-    exit $R
+'configure') case "$2" in
+  '' | 'all')
+    keep_conf_section 'user' || set_piauser
+    keep_conf_section 'keys' || generate_wgkeys
+    keep_conf_section 'net_interface' || set_defnetiface
+    keep_conf_section 'net_peer' || set_defnetpeer
+    if read_yn "Do you have a dedicated IP"; then
+      keep_conf_section 'dip' || set_dip
+      validate_dip
+    else
+      uci -q delete pia_wg.@dip[0]
+      uci -q commit pia_wg
+    fi
+    # if no DIP ask for region
+    uci -q get pia_wg.@dip[0].token >/dev/null || keep_conf_section 'region' || select_region
     ;;
-  'start')
-    check_wg; case $? in
-      0) echo "PIA is already up!";;
-      1) start_wgpia;;
-      2) echo "Could not start PIA!" >&2;;
-    esac; R=$?
-    [ $R -eq 0 ] && [ "$2" = "--watchdog" ] && watchdog_install
-    exit $R
+  'user') keep_conf_section 'user' || set_piauser ;;
+  'dip') keep_conf_section 'dip' || set_dip ;;
+  'region') keep_conf_section 'region' || select_region ;;
+  'network')
+    keep_conf_section 'net_interface' || set_defnetiface
+    keep_conf_section 'net_peer' || set_defnetpeer
     ;;
-  'stop') watchdog_remove; stop_wgpia;;
-  'status') check_wg; R=$?; watchdog_installed && { echo "Watchdog (cron) installed: YES"; WLR="$(watchdog_lastrun)" && echo "Watchdog last check: $WLR"; } || echo "Watchdog (cron) installed: NO"; exit $R;;
-  'log') case "$2" in
-    'show') log_show;;
-    'clear') log_clear;;
-    'path') set_logpath;;
-    *) echo "Unknown log subcommand '$2'!"; print_usage; exit 1;;
-    esac;;
-  'update') script_update;;
-  'version') echo "Version is ${CURVERS}";;
-  '') print_usage;;
-  *) echo "Unknown command '$*'!" >&2; print_usage; exit 1;;
+  'keys') keep_conf_section 'keys' || generate_wgkeys ;;
+  *)
+    echo "Unknown configure subcommand '$2'!"
+    print_usage
+    exit 1
+    ;;
+  esac ;;
+'watchdog') case "$2" in
+  'install') watchdog_install ;;
+  'remove') watchdog_remove ;;
+  *)
+    echo "Unknown watchdog subcommand '$2'!"
+    print_usage
+    exit 1
+    ;;
+  esac ;;
+'init-network') set_netconf ;;
+'restart')
+  start_wgpia
+  R=$?
+  [ $R -eq 0 ] && [ "$2" = "--watchdog" ] && watchdog_install
+  exit $R
+  ;;
+'start')
+  check_wg
+  case $? in
+  0) echo "PIA is already up!" ;;
+  1) start_wgpia ;;
+  2) echo "Could not start PIA!" >&2 ;;
+  esac
+  R=$?
+  [ $R -eq 0 ] && [ "$2" = "--watchdog" ] && watchdog_install
+  exit $R
+  ;;
+'stop')
+  watchdog_remove
+  stop_wgpia
+  ;;
+'status')
+  check_wg
+  R=$?
+  watchdog_installed && {
+    echo "Watchdog (cron) installed: YES"
+    WLR="$(watchdog_lastrun)" && echo "Watchdog last check: $WLR"
+  } || echo "Watchdog (cron) installed: NO"
+  exit $R
+  ;;
+'log') case "$2" in
+  'show') log_show ;;
+  'clear') log_clear ;;
+  'path') set_logpath ;;
+  *)
+    echo "Unknown log subcommand '$2'!"
+    print_usage
+    exit 1
+    ;;
+  esac ;;
+'update') script_update ;;
+'version') echo "Version is ${CURVERS}" ;;
+'') print_usage ;;
+*)
+  echo "Unknown command '$*'!" >&2
+  print_usage
+  exit 1
+  ;;
 esac
 
 exit
