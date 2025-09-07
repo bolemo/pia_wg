@@ -386,7 +386,7 @@ check_wg() {
     PIAWG_EP="$(wg show "$PIAWG_IF" endpoints | awk -F'[[:space:]:]' '{print $2; exit;}')"
     PIAWG_MK="$(wg show "$PIAWG_IF" fwmark)"
     [ "$PIAWG_MK" = "off" ] && PIAWG_MK='' || PIAWG_MK="mark $PIAWG_MK"
-    WAN_IF="$(ip route get "$PIAWG_EP" "$PIAWG_MK" | awk '{for(i=0;i<NF;i++){if($i=="dev"){print $++i; exit;}}}')"
+    WAN_IF="$(ip route get "$PIAWG_EP" ${PIAWG_MK:+"$PIAWG_MK"} | awk '{for(i=0;i<NF;i++){if($i=="dev"){print $++i; exit;}}}')"
     echo "WireGuard PIA interface: UP"
   else
     echo "WireGuard PIA interface: DOWN!" >&3
