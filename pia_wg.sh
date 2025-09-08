@@ -7,7 +7,7 @@
 # - This thread: https://forum.openwrt.org/t/private-internet-access-pia-wireguard-vpn-on-openwrt/155475
 # - And @Lazerdog's script: https://github.com/jimhall718/piawg/blob/main/piawgx.sh
 #
-# Version: 1.0.13
+# Version: 1.0.14
 #
 # ©2025 bOLEMO
 # https://github.com/bolemo/pia_wg/
@@ -385,7 +385,7 @@ check_wg() {
   if wg show "$PIAWG_IF" >/dev/null 2>&1; then
     PIAWG_EP="$(wg show "$PIAWG_IF" endpoints | awk -F'[[:space:]:]' '{print $2; exit;}')"
     PIAWG_MK="$(wg show "$PIAWG_IF" fwmark)"
-    [ "$PIAWG_MK" = "off" ] && PIAWG_MK='' || PIAWG_MK="$PIAWG_MK"
+    [ "$PIAWG_MK" = "off" ] && PIAWG_MK=''
     WAN_IF="$(ip route get "$PIAWG_EP" ${PIAWG_MK:+mark "$PIAWG_MK"} | awk '{for(i=0;i<NF;i++){if($i=="dev"){print $++i; exit;}}}')"
     echo "WireGuard PIA interface: UP"
   else
