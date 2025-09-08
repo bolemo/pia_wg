@@ -7,7 +7,7 @@ A script to setup and run PIA through WireGuard on OpenWrt
   - And @Lazerdog's script: https://github.com/jimhall718/piawg/blob/main/piawgx.sh
 
 ## Version
-1.0.13
+1.0.14
 
 ## Install
   - Connect to your OpenWrt router with SSH
