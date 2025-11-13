@@ -582,10 +582,14 @@ case "$1" in
 'status')
   check_wg
   R=$?
-  watchdog_installed && {
+  if watchdog_installed; then
     echo "Watchdog (cron) installed: YES"
-    WLR="$(watchdog_lastrun)" && echo "Watchdog last check: $WLR"
-  } || echo "Watchdog (cron) installed: NO"
+    if WLR="$(watchdog_lastrun)"; then
+      echo "Watchdog last check: $WLR"
+    fi
+  else
+    echo "Watchdog (cron) installed: NO"
+  fi
   exit $R
   ;;
 'log') case "$2" in
