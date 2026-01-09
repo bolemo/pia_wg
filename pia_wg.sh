@@ -7,9 +7,9 @@
 # - This thread: https://forum.openwrt.org/t/private-internet-access-pia-wireguard-vpn-on-openwrt/155475
 # - And @Lazerdog's script: https://github.com/jimhall718/piawg/blob/main/piawgx.sh
 #
-# Version: 1.0.15
+# Version: 1.0.16
 #
-# ©2025 bOLEMO
+# ©2026 bOLEMO
 # https://github.com/bolemo/pia_wg/
 #
 #########
@@ -124,11 +124,29 @@ EOI
 }
 
 validate_dip() {
-  DIPTOK="$(uci -q get pia_wg.@dip[0].token)" || return
-  DIPR="$(curl -s -L -X POST 'https://www.privateinternetaccess.com/api/client/v2/dedicated_ip' --header 'Content-Type: application/json' --header "Authorization: Token $(uci -q get pia_wg.@token[0].hash)" -d '{ "tokens":["'"$DIPTOK"'"] }' | jq 'select(.[0]) | .[0]')"
-  [ -z "$DIPTOK" ] && return
+  DIPTOK="$(uci -q get pia_wg.@dip[0].token)" || return  
+  # Try to fetch DIP info from API
+  DIPR="$(curl -s -L -X POST 'https://www.privateinternetaccess.com/api/client/v2/dedicated_ip' \
+    --header 'Content-Type: application/json' \
+    --header "Authorization: Token $(uci -q get pia_wg.@token[0].hash)" \
+    -d '{ "tokens":["'"$DIPTOK"'"] }' | jq 'select(.[0]) | .[0]')" 
+  # Extract status - if empty, API call failed (likely network down during restart)
+  DIP_STATUS_NEW="$(echo "$DIPR" | jq -r 'select(.status) | .status')"
+  if [ -z "$DIP_STATUS_NEW" ]; then
+    # API call failed - preserve existing config if it exists
+    DIP_STATUS_EXISTING="$(uci -q get pia_wg.@dip[0].status)"
+    if [ -n "$DIP_STATUS_EXISTING" ]; then
+      echo "Cannot validate DIP (network down?), keeping existing config" >&3
+      return 0
+    else
+      # No existing config and API failed - this is a real error
+      echo "Warning: Cannot validate DIP token!" >&3
+      return 1
+    fi
+  fi
+  # API call succeeded - update UCI with fresh data
   uci -q batch <<EOI >/dev/null
-  set pia_wg.@dip[0].status="$(echo "$DIPR" | jq -r 'select(.status) | .status')"
+  set pia_wg.@dip[0].status="$DIP_STATUS_NEW"
   set pia_wg.@dip[0].ip="$(echo "$DIPR" | jq -r 'select(.ip) | .ip')"
   set pia_wg.@dip[0].cn="$(echo "$DIPR" | jq -r 'select(.cn) | .cn')"
   set pia_wg.@dip[0].expire="$(echo "$DIPR" | jq -r 'select(.dip_expire) | .dip_expire')"
