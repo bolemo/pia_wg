@@ -124,12 +124,12 @@ EOI
 }
 
 validate_dip() {
-  DIPTOK="$(uci -q get pia_wg.@dip[0].token)" || return  
+  DIPTOK="$(uci -q get pia_wg.@dip[0].token)" || return
   # Try to fetch DIP info from API
   DIPR="$(curl -s -L -X POST 'https://www.privateinternetaccess.com/api/client/v2/dedicated_ip' \
     --header 'Content-Type: application/json' \
     --header "Authorization: Token $(uci -q get pia_wg.@token[0].hash)" \
-    -d '{ "tokens":["'"$DIPTOK"'"] }' | jq 'select(.[0]) | .[0]')" 
+    -d '{ "tokens":["'"$DIPTOK"'"] }' | jq 'select(.[0]) | .[0]')"
   # Extract status - if empty, API call failed (likely network down during restart)
   DIP_STATUS_NEW="$(echo "$DIPR" | jq -r 'select(.status) | .status')"
   if [ -z "$DIP_STATUS_NEW" ]; then
