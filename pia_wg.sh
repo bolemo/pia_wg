@@ -65,7 +65,7 @@ logfile() {
 
 select_region() {
   echo "Fetching latest PIA servers list…"
-  if ! PIAREGIONS="$(curl -s https://serverlist.piaservers.net/vpninfo/servers/v6 | head -1 | jq '.regions | sort_by(.name)')"; then
+  if ! PIAREGIONS="$(curl -sfL -m20 https://serverlist.piaservers.net/vpninfo/servers/v6 | head -1 | jq '.regions | sort_by(.name)')"; then
     echo "Error fetching PIA servers list!" >&3
     exit 1
   fi
@@ -126,7 +126,7 @@ EOI
 validate_dip() {
   DIPTOK="$(uci -q get pia_wg.@dip[0].token)" || return
   # Try to fetch DIP info from API
-  DIPR="$(curl -s -L -X POST 'https://www.privateinternetaccess.com/api/client/v2/dedicated_ip' \
+  DIPR="$(curl -sL -m15 -X POST 'https://www.privateinternetaccess.com/api/client/v2/dedicated_ip' \
     --header 'Content-Type: application/json' \
     --header "Authorization: Token $(uci -q get pia_wg.@token[0].hash)" \
     -d '{ "tokens":["'"$DIPTOK"'"] }' | jq 'select(.[0]) | .[0]')"
@@ -215,7 +215,7 @@ renew_piatoken() {
   echo "Renewing PIA token" >&3
   uci -q get pia_wg.@user[0] >/dev/null || set_piauser
 
-  if ! PIARESPONSE="$(curl -s --data-urlencode "username=$(uci -q get pia_wg.@user[0].id)" --data-urlencode "password=$(uci -q get pia_wg.@user[0].password)" https://www.privateinternetaccess.com/api/client/v2/token)"; then
+  if ! PIARESPONSE="$(curl -sL -m15 --data-urlencode "username=$(uci -q get pia_wg.@user[0].id)" --data-urlencode "password=$(uci -q get pia_wg.@user[0].password)" https://www.privateinternetaccess.com/api/client/v2/token)"; then
     echo "Error: Failed to connect to PIA authentication server!" >&3
     exit 1
   fi
@@ -461,7 +461,7 @@ log_clear() {
 
 script_update() {
   TMPDL="/tmp/pia_wg_dl.tmp"
-  curl -s -o "$TMPDL" "$SCRIPTDL" || {
+  curl -sfL -m30 -o "$TMPDL" "$SCRIPTDL" || {
     echo "Failed to check/download latest version!" >&2
     rm "$TMPDL"
     exit 1
