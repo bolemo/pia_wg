@@ -65,7 +65,7 @@ logfile() {
 
 select_region() {
   echo "Fetching latest PIA servers list…"
-  if ! PIAREGIONS="$(curl -s https://serverlist.piaservers.net/vpninfo/servers/v6 | head -1 | jq '.regions | sort_by(.name)')"; then
+  if ! PIAREGIONS="$(curl -s https://serverlist.piaservers.net/vpninfo/servers/v7 | head -1 | jq '.regions | sort_by(.name)')"; then
     echo "Error fetching PIA servers list!" >&3
     exit 1
   fi
