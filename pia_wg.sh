@@ -354,7 +354,7 @@ set_netconf() {
   # if no DIP (DIP_STATUS is set from check_conf)
   if [ -z "$DIP_STATUS" ]; then
     PIAREGIONID="$(uci -q get pia_wg.@region[0].id)"
-    PIASRV="$(curl -sfL -m15 https://serverlist.piaservers.net/vpninfo/servers/v6 | head -1 | jq -r --arg id "$PIAREGIONID" '.regions[] | select(.id==$id) | .servers.wg[0] | .ip+" "+.cn')"
+    PIASRV="$(curl -sfL -m15 https://serverlist.piaservers.net/vpninfo/servers/v7 | head -1 | jq -r --arg id "$PIAREGIONID" '.regions[] | select(.id==$id) | .servers.wg[0] | .ip+" "+.cn')"
     WGSRV_IP="${PIASRV% *}"
     WGSRV_CN="${PIASRV##* }"
     [ -n "$WGSRV_IP" ] && [ -n "$WGSRV_CN" ] || {
