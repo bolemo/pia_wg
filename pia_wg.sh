@@ -443,7 +443,7 @@ check_wg() {
   fi
 
   echo "Region is: $(uci get network.$PIAWG_PEER.description)"
-  if ping -q -c1 -w1 -n -I "$PIAWG_IF" 1.1.1.1 >/dev/null; then
+  if ping -q -c3 -W2 -n -I "$PIAWG_IF" 1.1.1.1 >/dev/null; then
     echo "Connectivity through PIA: OK"
   elif ping -q -c1 -w1 -n -I "$WAN_IF" "$PIAWG_EP" >/dev/null; then
     echo "Connectivity through PIA: NOK" >&3
