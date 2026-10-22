@@ -129,6 +129,8 @@ EOI
 
 validate_dip() {
   DIPTOK="$(uci -q get pia_wg.@dip[0].token)" || return
+  # The DIP API needs a valid PIA token
+  ensure_piatoken
   # Try to fetch DIP info from API
   DIPR="$(curl -sL -m15 -X POST 'https://www.privateinternetaccess.com/api/client/v2/dedicated_ip' \
     --header 'Content-Type: application/json' \
@@ -274,6 +276,10 @@ renew_piatoken() {
 EOI
 }
 
+ensure_piatoken() {
+  uci -q get pia_wg.@token[0] >/dev/null && [ $(($(date +%s) - $(uci get pia_wg.@token[0].timestamp))) -lt 86400 ] || renew_piatoken
+}
+
 keep_conf_section() {
   case "$1" in
   user) DESC='PIA user' ;;
@@ -348,7 +354,7 @@ set_netconf() {
     exit 1
   }
   ensure_piacert || exit 1
-  uci -q get pia_wg.@token[0] >/dev/null && [ $(($(date +%s) - $(uci get pia_wg.@token[0].timestamp))) -lt 86400 ] || renew_piatoken
+  ensure_piatoken
   echo "Initializing network"
 
   # if no DIP (DIP_STATUS is set from check_conf)
