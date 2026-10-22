@@ -412,12 +412,12 @@ check_wg() {
   fi
 
   echo "Region is: $(uci get network.$PIAWG_PEER.description)"
-  if traceroute -i "$PIAWG_IF" -q1 -m1 1.1.1.1 | grep -q ' ms'; then
+  if ping -q -c1 -w1 -n -I "$PIAWG_IF" 1.1.1.1 >/dev/null; then
     echo "Connectivity through PIA: OK"
-  elif ping -q -c1 -n -I "$WAN_IF" "$PIAWG_EP" >/dev/null; then
+  elif ping -q -c1 -w1 -n -I "$WAN_IF" "$PIAWG_EP" >/dev/null; then
     echo "Connectivity through PIA: NOK" >&3
     return 1
-  elif traceroute -i "$WAN_IF" -q1 -m1 1.1.1.1 | grep -q ' ms'; then
+  elif ping -q -c1 -w1 -n -I "$WAN_IF" 1.1.1.1 >/dev/null; then
     echo "Access to PIA Endpoint through WAN: NOK!" >&3
     return 1
   else
