@@ -22,6 +22,10 @@ PIACONF='/etc/config/pia_wg'
 PIAWG_IF='wg_pia'
 PIAWG_PEER='wgpeer_pia'
 CURVERS="$(awk '(index($0,"# Version: ")==1){print $3; exit}' "$SCRIPTPATH")"
+PIACERTNAME='ca.rsa.4096.crt'
+PIACERT="$(dirname "$SCRIPTPATH")/$PIACERTNAME"
+PIACERTURL="https://www.privateinternetaccess.com/openvpn/$PIACERTNAME"
+PIACERTSHA256='32e9b1d1433ea97614f2a14c6e358e3f57c0570cc9f6b2ee812699ba696c66ab'
 
 read_yn() {
   while
@@ -211,6 +215,24 @@ generate_wgkeys() {
 EOI
 }
 
+ensure_piacert() {
+  if echo "$PIACERTSHA256  $PIACERT" | sha256sum -c >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "Fetching PIA CA certificate from $PIACERTURL" >&3
+  if ! curl -sfL -m15 -o "$PIACERT.tmp" "$PIACERTURL"; then
+    rm -f "$PIACERT.tmp"
+    echo "Error: failed to download PIA CA certificate!" >&3
+    return 1
+  fi
+  if ! echo "$PIACERTSHA256  $PIACERT.tmp" | sha256sum -c >/dev/null 2>&1; then
+    rm -f "$PIACERT.tmp"
+    echo "Error: PIA CA certificate SHA-256 mismatch (expected $PIACERTSHA256)!" >&3
+    return 1
+  fi
+  mv "$PIACERT.tmp" "$PIACERT"
+}
+
 renew_piatoken() {
   echo "Renewing PIA token" >&3
   uci -q get pia_wg.@user[0] >/dev/null || set_piauser
@@ -325,14 +347,23 @@ set_netconf() {
     echo "Configuration is incomplete; exiting!" >&3
     exit 1
   }
+  ensure_piacert || exit 1
   uci -q get pia_wg.@token[0] >/dev/null && [ $(($(date +%s) - $(uci get pia_wg.@token[0].timestamp))) -lt 86400 ] || renew_piatoken
   echo "Initializing network"
 
   # if no DIP (DIP_STATUS is set from check_conf)
   if [ -z "$DIP_STATUS" ]; then
-    PIAADDKEY="$(curl -s -k -G --data-urlencode "pt=$(uci -q get pia_wg.@token[0].hash)" --data-urlencode "pubkey=$(uci -q get pia_wg.@keys[0].pub)" "https://$(uci -q get pia_wg.@region[0].dns):1337/addKey")"
+    PIAREGIONID="$(uci -q get pia_wg.@region[0].id)"
+    PIASRV="$(curl -sfL -m15 https://serverlist.piaservers.net/vpninfo/servers/v6 | head -1 | jq -r --arg id "$PIAREGIONID" '.regions[] | select(.id==$id) | .servers.wg[0] | .ip+" "+.cn')"
+    WGSRV_IP="${PIASRV% *}"
+    WGSRV_CN="${PIASRV##* }"
+    [ -n "$WGSRV_IP" ] && [ -n "$WGSRV_CN" ] || {
+      echo "Error: no WireGuard server found for region $PIAREGIONID" >&3
+      exit 1
+    }
+    PIAADDKEY="$(curl -sfL -m15 --cacert "$PIACERT" -G --connect-to "$WGSRV_CN::$WGSRV_IP" --data-urlencode "pt=$(uci -q get pia_wg.@token[0].hash)" --data-urlencode "pubkey=$(uci -q get pia_wg.@keys[0].pub)" "https://$WGSRV_CN:1337/addKey")"
   else
-    PIAADDKEY="$(curl -s -k -G --connect-to "$(uci -q get pia_wg.@dip[0].cn)::$(uci -q get pia_wg.@dip[0].ip)" --user "dedicated_ip_$(uci -q get pia_wg.@dip[0].token):$(uci -q get pia_wg.@dip[0].ip)" --data-urlencode "pubkey=$(uci -q get pia_wg.@keys[0].pub)" "https://$(uci -q get pia_wg.@dip[0].cn):1337/addKey")"
+    PIAADDKEY="$(curl -sfL -m15 --cacert "$PIACERT" -G --connect-to "$(uci -q get pia_wg.@dip[0].cn)::$(uci -q get pia_wg.@dip[0].ip)" --user "dedicated_ip_$(uci -q get pia_wg.@dip[0].token):$(uci -q get pia_wg.@dip[0].ip)" --data-urlencode "pubkey=$(uci -q get pia_wg.@keys[0].pub)" "https://$(uci -q get pia_wg.@dip[0].cn):1337/addKey")"
   fi
   #  echo "$PIAADDKEY"
 
@@ -481,6 +512,7 @@ script_update() {
   echo "Upgrading from version $CURVERS to version $NEWVERS"
   mv "$TMPDL" "$SCRIPTPATH"
   chmod +x "$SCRIPTPATH"
+  rm -f "$PIACERT"
   echo "Done"
 }
 
