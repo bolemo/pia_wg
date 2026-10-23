@@ -26,6 +26,7 @@ PIACERTNAME='ca.rsa.4096.crt'
 PIACERT="$(dirname "$SCRIPTPATH")/$PIACERTNAME"
 PIACERTURL="https://www.privateinternetaccess.com/openvpn/$PIACERTNAME"
 PIACERTSHA256='32e9b1d1433ea97614f2a14c6e358e3f57c0570cc9f6b2ee812699ba696c66ab'
+NOTIFYPENDING='/tmp/pia_wg_notify.pending'
 
 read_yn() {
   while
@@ -180,6 +181,39 @@ set_dip() {
 EOI
 }
 
+notify_post() {
+  WEBHOOK="$(uci -q get pia_wg.@notify[0].webhook)" || return 1
+  jq -n --arg h "$(cat /proc/sys/kernel/hostname)" --arg t "$1" '{text:("pia_wg on "+$h+":\n"+$t)}' |
+    curl -sf -m10 -o /dev/null -H 'Content-Type: application/json' -d @- "$WEBHOOK"
+}
+
+# Sends lines queued by the watchdog; kept for the next run if the post fails (e.g. no connectivity)
+# shellcheck disable=SC2329  # Function is used in _exit trap
+notify_send() {
+  [ -s "$NOTIFYPENDING" ] || return 0
+  notify_post "$(tail -n 50 "$NOTIFYPENDING")" && rm -f "$NOTIFYPENDING"
+}
+
+set_notify() {
+  printf "Slack (or compatible) incoming webhook URL (press enter for none): "
+  read -r WEBHOOK
+  if [ -z "$WEBHOOK" ]; then
+    uci -q delete pia_wg.@notify[0]
+    uci -q commit pia_wg
+    rm -f "$NOTIFYPENDING"
+    return
+  fi
+  uci -q batch <<EOI >/dev/null
+    delete pia_wg.@notify[0]
+    add pia_wg notify
+    set pia_wg.@notify[0].webhook="$WEBHOOK"
+    commit pia_wg.@notify[0]
+EOI
+  if read_yn "Send a test notification"; then
+    notify_post "test notification" && echo "Test notification sent" || echo "Failed to send test notification!"
+  fi
+}
+
 set_defnetpeer() {
   uci -q batch <<EOI >/dev/null
     delete pia_wg.@net_peer[0]
@@ -282,6 +316,7 @@ keep_conf_section() {
   net_peer) DESC='WireGuard network PIA peer options' ;;
   region) DESC='PIA region' ;;
   dip) DESC="Dedicated IP token" ;;
+  notify) DESC="Notification webhook" ;;
   esac
   if uci -q get "pia_wg.@$1[0]" >/dev/null; then
     echo "A configuration already exists for '$DESC':"
@@ -526,6 +561,7 @@ print_usage() {
   echo "    - configure region   : set/choose PIA region"
   echo "    - configure keys     : generate local WireGuard keys"
   echo "    - configure network  : generate default network settings"
+  echo "    - configure notify   : set a Slack (or compatible) webhook to notify watchdog errors/actions"
   echo "    - init-network       : setup PIA WireGuard network (no start)"
   echo "    - start              : start PIA WireGuard (if not already up)"
   echo "    - start --watchdog   : same as start and install the watchdog"
@@ -555,13 +591,18 @@ if [ "$AUTO" ]; then
   # shellcheck disable=SC2329  # Function is used in trap below
   _exit() {
     exec 3>&-
+    wait "$LOGGERPID" 2>/dev/null
+    notify_send
     rm "$FIFO" >/dev/null 2>&1
     exit
   }
   trap "_exit" 1 2 3 6 EXIT
   [ -f "$PIALOG" ] && touch "$PIALOG" || echo "[$(date)] Log created" >"$PIALOG"
   mkfifo "$FIFO"
-  awk -v lf="$PIALOG" -v date="$(date)" '{print; printf("[%s] %s\n",date,$0) >> lf}' "$FIFO" >&2 &
+  # Anything written to fd 3 is notable (error or corrective action): log it, and queue it for notification if a webhook is set
+  NF="$(uci -q get pia_wg.@notify[0].webhook >/dev/null && echo "$NOTIFYPENDING")"
+  awk -v lf="$PIALOG" -v nf="$NF" -v date="$(date)" '{print; printf("[%s] %s\n",date,$0) >> lf; if(nf){printf("[%s] %s\n",date,$0) >> nf}}' "$FIFO" >&2 &
+  LOGGERPID=$!
   exec 3<>"$FIFO"
 else
   exec 3>&2
@@ -592,6 +633,7 @@ case "$1" in
     keep_conf_section 'net_peer' || set_defnetpeer
     ;;
   'keys') keep_conf_section 'keys' || generate_wgkeys ;;
+  'notify') keep_conf_section 'notify' || set_notify ;;
   *)
     echo "Unknown configure subcommand '$2'!"
     print_usage
