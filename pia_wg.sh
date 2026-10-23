@@ -27,6 +27,10 @@ PIACERT="$(dirname "$SCRIPTPATH")/$PIACERTNAME"
 PIACERTURL="https://www.privateinternetaccess.com/openvpn/$PIACERTNAME"
 PIACERTSHA256='32e9b1d1433ea97614f2a14c6e358e3f57c0570cc9f6b2ee812699ba696c66ab'
 NOTIFYPENDING='/tmp/pia_wg_notify.pending'
+NOTIFYEVENTS='/tmp/pia_wg_notify.events'
+NOTIFYLAST='/tmp/pia_wg_notify.last'
+NOTIFYBURST=3    # watchdog runs with something to report that are notified right away within NOTIFYWINDOW...
+NOTIFYWINDOW=900 # ...beyond that it is flapping: at most one grouped notification per NOTIFYWINDOW (seconds)
 
 read_yn() {
   while
@@ -196,10 +200,37 @@ notify_post() {
 }
 
 # Sends lines queued by the watchdog; kept for the next run if the post fails (e.g. no connectivity)
+# or while the watchdog is flapping, then sent together
 # shellcheck disable=SC2329  # Function is used in _exit trap
 notify_send() {
   [ -s "$NOTIFYPENDING" ] || return 0
-  notify_post "$(tail -n 50 "$NOTIFYPENDING")" && rm -f "$NOTIFYPENDING"
+  NOW="$(date +%s)"
+  # Runs that had something to report over the last NOTIFYWINDOW (this one included if it added lines)
+  EVENTS="$(awk -v now="$NOW" -v w="$NOTIFYWINDOW" 'now - $1 < w' "$NOTIFYEVENTS" 2>/dev/null)"
+  [ "$(($(wc -c <"$NOTIFYPENDING")))" -gt "${NOTIFYSIZE:-0}" ] && EVENTS="$(printf '%s\n%s' "$EVENTS" "$NOW")"
+  echo "$EVENTS" | grep . >"$NOTIFYEVENTS"
+  # Flapping (more than NOTIFYBURST such runs): hold and group, one post per NOTIFYWINDOW at most
+  LAST="$(cat "$NOTIFYLAST" 2>/dev/null)"
+  if [ "$(grep -c . "$NOTIFYEVENTS")" -gt "$NOTIFYBURST" ] && [ $((NOW - ${LAST:-0})) -lt "$NOTIFYWINDOW" ]; then
+    notify_trim
+    return 0
+  fi
+  N="$(grep -c . "$NOTIFYPENDING")"
+  MSG="$(tail -n 50 "$NOTIFYPENDING")"
+  [ "$N" -gt 50 ] && MSG="($((N - 50)) earlier lines omitted)
+$MSG"
+  if notify_post "$MSG"; then
+    rm -f "$NOTIFYPENDING"
+    echo "$NOW" >"$NOTIFYLAST"
+  else
+    notify_trim
+  fi
+}
+
+# Keeps the pending queue bounded while posts fail or are held back
+# shellcheck disable=SC2329  # Function is used by notify_send, in _exit trap
+notify_trim() {
+  tail -n 200 "$NOTIFYPENDING" >"$NOTIFYPENDING.tmp" && mv "$NOTIFYPENDING.tmp" "$NOTIFYPENDING"
 }
 
 set_notify() {
@@ -208,7 +239,7 @@ set_notify() {
   if [ -z "$WEBHOOK" ]; then
     uci -q delete pia_wg.@notify[0]
     uci -q commit pia_wg
-    rm -f "$NOTIFYPENDING"
+    rm -f "$NOTIFYPENDING" "$NOTIFYEVENTS" "$NOTIFYLAST"
     return
   fi
   uci -q batch <<EOI >/dev/null
@@ -629,6 +660,7 @@ if [ "$AUTO" ]; then
   mkfifo "$FIFO"
   # Anything written to fd 3 is notable (error or corrective action): log it, and queue it for notification if a webhook is set
   NF="$(uci -q get pia_wg.@notify[0].webhook >/dev/null && echo "$NOTIFYPENDING")"
+  [ -f "$NOTIFYPENDING" ] && NOTIFYSIZE="$(($(wc -c <"$NOTIFYPENDING")))" || NOTIFYSIZE=0
   awk -v lf="$PIALOG" -v nf="$NF" -v date="$(date)" '{print; printf("[%s] %s\n",date,$0) >> lf; if(nf){printf("[%s] %s\n",date,$0) >> nf}}' "$FIFO" >&2 &
   LOGGERPID=$!
   exec 3<>"$FIFO"

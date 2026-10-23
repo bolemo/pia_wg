@@ -72,6 +72,7 @@ The watchdog can post to a Slack [incoming webhook](https://api.slack.com/messag
 
 - To set it up, run `./pia_wg.sh configure notify` and paste the webhook URL (press enter to disable).
 - If a notification cannot be sent (e.g. no connectivity), it is kept and sent along with the next one.
+- Notifications are sent right away. If the watchdog has something to report more than 3 times within 15 minutes (flapping), messages are grouped and sent at most once every 15 minutes until it settles.
 - For [ntfy](https://ntfy.sh), use its [message templating](https://docs.ntfy.sh/publish/#message-templating) to extract the text, e.g. `https://ntfy.sh/your-topic?tpl=yes&t=pia_wg&m=%7B%7B.text%7D%7D` (keep the braces URL-encoded as `%7B`/`%7D`).
 
 ## Usage
