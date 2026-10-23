@@ -15,7 +15,10 @@ A script to setup and run PIA through WireGuard on OpenWrt
 <br /> For example: `mkdir /opt/scripts; cd /opt/scripts`
   - Download the script: `wget https://raw.githubusercontent.com/bolemo/pia_wg/main/pia_wg.sh`
   - Give execution permission to the script: `chmod +x pia_wg.sh`
-  - Install packages which the script depends on: `opkg update && opkg install jq-full curl wireguard-tools luci-proto-wireguard coreutils-stty coreutils-nl`
+  - Install packages which the script depends on:
+    - OpenWrt 25.12 and later: `apk update && apk add jq curl wireguard-tools luci-proto-wireguard coreutils-stty coreutils-nl`
+    - Older OpenWrt: `opkg update && opkg install jq-full curl wireguard-tools luci-proto-wireguard coreutils-stty coreutils-nl`
+  - Restart the network (`/etc/init.d/network restart`) or reboot, so that the WireGuard protocol is known (otherwise LuCI shows `Unsupported protocol type` and the interface stays down)
   - Configure and run:
     - To configure and run PIA, use `./pia_wg.sh start` (or `./pia_wg.sh start --watchdog` if you want the watchdog installed) and answer the questions
     - To just configure, use `./pia_wg.sh configure` and answer the questions

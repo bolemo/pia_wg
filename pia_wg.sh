@@ -376,7 +376,24 @@ keep_conf_section() {
   return 1
 }
 
+# Fails early with a clear message when a dependency is missing (see README, Install)
+check_deps() {
+  MISSING=''
+  for CMD in curl jq wg; do
+    command -v "$CMD" >/dev/null 2>&1 || MISSING="$MISSING $CMD"
+  done
+  [ -z "$MISSING" ] || {
+    echo "Missing command(s):$MISSING; install the packages listed in the README (Install section)" >&3
+    return 1
+  }
+  ubus call network get_proto_handlers 2>/dev/null | jsonfilter -e '@.wireguard' >/dev/null 2>&1 || {
+    echo "The network service does not know the WireGuard protocol yet: run '/etc/init.d/network restart' (or reboot) after installing wireguard-tools" >&3
+    return 1
+  }
+}
+
 check_conf() {
+  check_deps || return 1
   uci -q get pia_wg.@user[0] >/dev/null &&
     echo "User is configured" ||
     {
