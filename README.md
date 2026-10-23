@@ -78,6 +78,14 @@ The watchdog can post to a Slack [incoming webhook](https://api.slack.com/messag
 - Notifications are sent right away. If the watchdog has something to report more than 3 times within 15 minutes (flapping), messages are grouped and sent at most once every 15 minutes until it settles.
 - For [ntfy](https://ntfy.sh), use its [message templating](https://docs.ntfy.sh/publish/#message-templating) to extract the text, e.g. `https://ntfy.sh/your-topic?tpl=yes&t=pia_wg&m=%7B%7B.text%7D%7D` (keep the braces URL-encoded as `%7B`/`%7D`).
 
+## Favorite regions
+Instead of a single region, you can set several favorite regions: each time PIA (re)connects, the script measures how fast each one answers (TCP connect time to its PIA meta server) and uses the fastest. A working connection is never switched: the choice is only made when connecting (at start, or when the watchdog restarts PIA). Switching region is logged, and notified if a webhook is set.
+
+- `./pia_wg.sh configure region` offers to add favorite regions after the first one (region IDs are shown in brackets in the list).
+- Or with uci, listing every favorite including the current region: `uci add_list pia_wg.@region[0].favorite='france'`, then `uci commit pia_wg`.
+
+With a single region (no favorites), nothing changes.
+
 ## Usage
 Usage: `pia_wg.sh { configure <section> | start [ --watchdog ] | restart [ --watchdog ] | stop | status | watchdog { install | remove } | log { show | clear | path } | update | version}
 <br/>  Details:
@@ -85,7 +93,7 @@ Usage: `pia_wg.sh { configure <section> | start [ --watchdog ] | restart [ --wat
   - `configure all`      : configure all settings
   - `configure user`     : set PIA user ID and password
   - `configure dip`      : set PIA dedicated IP
-  - `configure region`   : set/choose PIA region
+  - `configure region`   : set/choose PIA region (and optional favorite regions)
   - `configure keys`     : generate local WireGuard keys
   - `configure network`  : generate default network settings
   - `configure notify`   : set a Slack (or compatible) webhook to notify watchdog errors/actions

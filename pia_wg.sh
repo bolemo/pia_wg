@@ -97,7 +97,7 @@ select_region() {
     echo "Eliminating non WireGuard servers…"
     read_yn "Port forward only servers" && PIASERVPF='| select(.port_forward==true) ' || PIASERVPF=''
     read_yn "Geo only servers" && PIASERVGEO='| select(.geo==true) ' || PIASERVGEO=''
-    echo "$PIAREGIONS" | jq -r ".[] | select(.offline==false) | select(.servers.wg) $PIASERVPF $PIASERVGEO | .name" | nl -v0
+    echo "$PIAREGIONS" | jq -r ".[] | select(.offline==false) | select(.servers.wg) $PIASERVPF $PIASERVGEO | .name + \" [\" + .id + \"]\"" | nl -v0
     printf "Select your region number: "
     read -r AND
     PIAREGIONID="$(echo "$PIAREGIONS" | jq -r "[.[] | select(.offline==false) | select(.servers.wg) $PIASERVPF $PIASERVGEO ][$AND].id")"
@@ -105,12 +105,25 @@ select_region() {
   PIAREGIONNAME="$(echo "$PIAREGIONS" | jq -r ".[] | select(.id==\"$PIAREGIONID\") | .name")"
   PIAREGIONDNS="$(echo "$PIAREGIONS" | jq -r ".[] | select(.id==\"$PIAREGIONID\") | .dns")"
   echo "Region selected: $PIAREGIONNAME"
+  FAVS="$PIAREGIONID"
+  if read_yn "Add other favorite regions (the fastest one is used at each connection)"; then
+    printf "Other favorite region IDs (shown in [brackets] in the list), separated by spaces: "
+    read -r OTHERS
+    for ID in $OTHERS; do
+      if [ -n "$(echo "$PIAREGIONS" | jq -r --arg id "$ID" '.[] | select(.id==$id) | select(.servers.wg) | .id')" ]; then
+        FAVS="$FAVS $ID"
+      else
+        echo "Ignoring unknown region ID: '$ID'"
+      fi
+    done
+  fi
   uci -q batch <<EOI >/dev/null
     delete pia_wg.@region[0]
     add pia_wg region
     set pia_wg.@region[0].id="$PIAREGIONID"
     set pia_wg.@region[0].name="$PIAREGIONNAME"
     set pia_wg.@region[0].dns="$PIAREGIONDNS"
+$([ "$(echo "$FAVS" | wc -w)" -gt 1 ] && for ID in $FAVS; do echo "    add_list pia_wg.@region[0].favorite=\"$ID\""; done)
     commit pia_wg.@region[0]
 EOI
 }
@@ -446,6 +459,42 @@ check_conf() {
     }
 }
 
+# With several favorite regions, use the one whose PIA meta server answers fastest (TCP connect time).
+# The choice is only made when connecting, so a working connection is never switched.
+pick_region() {
+  FAVS="$(uci -q get pia_wg.@region[0].favorite)"
+  [ "$(echo "$FAVS" | wc -w)" -gt 1 ] || return 0
+  BEST=''
+  BESTUS=''
+  for ID in $FAVS; do
+    IP="$(printf '%s\n' "$PIALIST" | jq -r --arg id "$ID" '.regions[] | select(.id==$id and .offline==false) | .servers.meta[0].ip // empty')"
+    [ -n "$IP" ] || continue
+    # Microseconds; curl reports 0 when the server does not answer
+    US="$(curl -o /dev/null -s --connect-timeout 2 -m 3 -w '%{time_connect}' "http://$IP:443" | awk '{printf "%d", $1 * 1000000}')"
+    [ "${US:-0}" -gt 0 ] || continue
+    if [ -z "$BESTUS" ] || [ "$US" -lt "$BESTUS" ]; then
+      BEST="$ID"
+      BESTUS="$US"
+    fi
+  done
+  if [ -z "$BEST" ]; then
+    echo "No favorite region answered, keeping $(uci -q get pia_wg.@region[0].name)" >&3
+    return 0
+  fi
+  BESTNAME="$(printf '%s\n' "$PIALIST" | jq -r --arg id "$BEST" '.regions[] | select(.id==$id) | .name')"
+  if [ "$BEST" = "$(uci -q get pia_wg.@region[0].id)" ]; then
+    echo "Fastest favorite region: $BESTNAME ($((BESTUS / 1000)) ms)"
+    return 0
+  fi
+  echo "Switching to the fastest favorite region: $BESTNAME ($((BESTUS / 1000)) ms)" >&3
+  uci -q batch <<EOI >/dev/null
+    set pia_wg.@region[0].id="$BEST"
+    set pia_wg.@region[0].name="$BESTNAME"
+    set pia_wg.@region[0].dns="$(printf '%s\n' "$PIALIST" | jq -r --arg id "$BEST" '.regions[] | select(.id==$id) | .dns')"
+    commit pia_wg.@region[0]
+EOI
+}
+
 set_netconf() {
   check_conf || {
     echo "Configuration is incomplete; exiting!" >&3
@@ -457,9 +506,11 @@ set_netconf() {
 
   # if no DIP (DIP_STATUS is set from check_conf)
   if [ -z "$DIP_STATUS" ]; then
+    PIALIST="$(curl -sfL -m15 https://serverlist.piaservers.net/vpninfo/servers/v7 | head -1)"
+    pick_region
     PIAREGIONID="$(uci -q get pia_wg.@region[0].id)"
     PIADESC="$(uci -q get pia_wg.@region[0].name)"
-    PIASRVS="$(curl -sfL -m15 https://serverlist.piaservers.net/vpninfo/servers/v7 | head -1 | jq -r --arg id "$PIAREGIONID" '.regions[] | select(.id==$id) | .servers.wg[]? | .ip+" "+.cn')"
+    PIASRVS="$(printf '%s\n' "$PIALIST" | jq -r --arg id "$PIAREGIONID" '.regions[] | select(.id==$id) | .servers.wg[]? | .ip+" "+.cn')"
     [ -n "$PIASRVS" ] || {
       echo "Error: no WireGuard server found for region $PIAREGIONID" >&3
       exit 1
@@ -634,7 +685,7 @@ print_usage() {
   echo "    - configure all      : configure all settings"
   echo "    - configure user     : set PIA user ID and password"
   echo "    - configure dip      : set PIA dedicated IP"
-  echo "    - configure region   : set/choose PIA region"
+  echo "    - configure region   : set/choose PIA region (and optional favorite regions)"
   echo "    - configure keys     : generate local WireGuard keys"
   echo "    - configure network  : generate default network settings"
   echo "    - configure notify   : set a Slack (or compatible) webhook to notify watchdog errors/actions"
