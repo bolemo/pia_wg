@@ -556,6 +556,8 @@ print_usage() {
 # ---- Main ->
 
 [ -e "$PIACONF" ] || touch "$PIACONF"
+# has creds like the PIA password, WireGuard private key and token, so tighten access
+chmod 600 "$PIACONF"
 PIALOG="$(logfile)"
 [ -t 0 ] && unset AUTO || AUTO=1
 
