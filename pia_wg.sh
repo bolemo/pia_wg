@@ -327,6 +327,7 @@ check_conf() {
       sleep 1
       [ "$AUTO" ] && return 1 || set_defnetpeer
     }
+  DIP_STATUS=''
   if uci -q get pia_wg.@dip[0] >/dev/null; then
     echo "Dedicated IP is configured"
     validate_dip
@@ -339,6 +340,8 @@ check_conf() {
         return 1
       }
   fi
+  # A dedicated IP does not need a region
+  [ -n "$DIP_STATUS" ] && return 0
   uci -q get pia_wg.@region[0] >/dev/null &&
     echo "PIA region is configured" ||
     {
@@ -360,6 +363,7 @@ set_netconf() {
   # if no DIP (DIP_STATUS is set from check_conf)
   if [ -z "$DIP_STATUS" ]; then
     PIAREGIONID="$(uci -q get pia_wg.@region[0].id)"
+    PIADESC="$(uci -q get pia_wg.@region[0].name)"
     PIASRV="$(curl -sfL -m15 https://serverlist.piaservers.net/vpninfo/servers/v7 | head -1 | jq -r --arg id "$PIAREGIONID" '.regions[] | select(.id==$id) | .servers.wg[0] | .ip+" "+.cn')"
     WGSRV_IP="${PIASRV% *}"
     WGSRV_CN="${PIASRV##* }"
@@ -369,6 +373,7 @@ set_netconf() {
     }
     PIAADDKEY="$(curl -sfL -m15 --cacert "$PIACERT" -G --connect-to "$WGSRV_CN::$WGSRV_IP" --data-urlencode "pt=$(uci -q get pia_wg.@token[0].hash)" --data-urlencode "pubkey=$(uci -q get pia_wg.@keys[0].pub)" "https://$WGSRV_CN:1337/addKey")"
   else
+    PIADESC="Dedicated IP $(uci -q get pia_wg.@dip[0].ip)"
     PIAADDKEY="$(curl -sfL -m15 --cacert "$PIACERT" -G --connect-to "$(uci -q get pia_wg.@dip[0].cn)::$(uci -q get pia_wg.@dip[0].ip)" --user "dedicated_ip_$(uci -q get pia_wg.@dip[0].token):$(uci -q get pia_wg.@dip[0].ip)" --data-urlencode "pubkey=$(uci -q get pia_wg.@keys[0].pub)" "https://$(uci -q get pia_wg.@dip[0].cn):1337/addKey")"
   fi
   #  echo "$PIAADDKEY"
@@ -395,7 +400,7 @@ set_netconf() {
   add_list network.$PIAWG_IF.dns="$WGDNS1"
   add_list network.$PIAWG_IF.dns="$WGDNS2"
   set network.$PIAWG_PEER="wireguard_${PIAWG_IF}"
-  set network.$PIAWG_PEER.description="PIA $(uci -q get pia_wg.@region[0].name)"
+  set network.$PIAWG_PEER.description="PIA $PIADESC"
   set network.$PIAWG_PEER.endpoint_host="$WGSERVIP"
   set network.$PIAWG_PEER.endpoint_port="$WGSERVPT"
   set network.$PIAWG_PEER.public_key="$WGSERVKEY"
