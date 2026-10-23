@@ -67,6 +67,13 @@ The script can install a watchdog that will check regularly the status and resta
 When the watchdog is enabled, the scripts log is located in `/var/log/pia_wg_watchdog.log`
 The log can be displayed using `pia_wg.sh log show` and cleared using `pia_wg_sh log clear`
 
+## Notifications
+The watchdog can post to a Slack [incoming webhook](https://api.slack.com/messaging/webhooks) (or any service accepting a JSON `{"text": "..."}` payload, like Mattermost or Rocket.Chat) whenever it logs an error or takes a corrective action (e.g. restarting PIA).
+
+- To set it up, run `./pia_wg.sh configure notify` and paste the webhook URL (press enter to disable).
+- If a notification cannot be sent (e.g. no connectivity), it is kept and sent along with the next one.
+- For [ntfy](https://ntfy.sh), use its [message templating](https://docs.ntfy.sh/publish/#message-templating) to extract the text, e.g. `https://ntfy.sh/your-topic?tpl=yes&t=pia_wg&m=%7B%7B.text%7D%7D` (keep the braces URL-encoded as `%7B`/`%7D`).
+
 ## Usage
 Usage: `pia_wg.sh { configure <section> | start [ --watchdog ] | restart [ --watchdog ] | stop | status | watchdog { install | remove } | log { show | clear | path } | update | version}
 <br/>  Details:
@@ -77,6 +84,7 @@ Usage: `pia_wg.sh { configure <section> | start [ --watchdog ] | restart [ --wat
   - `configure region`   : set/choose PIA region
   - `configure keys`     : generate local WireGuard keys
   - `configure network`  : generate default network settings
+  - `configure notify`   : set a Slack (or compatible) webhook to notify watchdog errors/actions
   - `init-network`       : setup PIA WireGuard network (no start)
   - `start`              : start PIA WireGuard (if not already up)
   - `start --watchdog`   : same as start and install the watchdog
