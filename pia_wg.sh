@@ -364,14 +364,19 @@ set_netconf() {
   if [ -z "$DIP_STATUS" ]; then
     PIAREGIONID="$(uci -q get pia_wg.@region[0].id)"
     PIADESC="$(uci -q get pia_wg.@region[0].name)"
-    PIASRV="$(curl -sfL -m15 https://serverlist.piaservers.net/vpninfo/servers/v7 | head -1 | jq -r --arg id "$PIAREGIONID" '.regions[] | select(.id==$id) | .servers.wg[0] | .ip+" "+.cn')"
-    WGSRV_IP="${PIASRV% *}"
-    WGSRV_CN="${PIASRV##* }"
-    [ -n "$WGSRV_IP" ] && [ -n "$WGSRV_CN" ] || {
+    PIASRVS="$(curl -sfL -m15 https://serverlist.piaservers.net/vpninfo/servers/v7 | head -1 | jq -r --arg id "$PIAREGIONID" '.regions[] | select(.id==$id) | .servers.wg[]? | .ip+" "+.cn')"
+    [ -n "$PIASRVS" ] || {
       echo "Error: no WireGuard server found for region $PIAREGIONID" >&3
       exit 1
     }
-    PIAADDKEY="$(curl -sfL -m15 --cacert "$PIACERT" -G --connect-to "$WGSRV_CN::$WGSRV_IP" --data-urlencode "pt=$(uci -q get pia_wg.@token[0].hash)" --data-urlencode "pubkey=$(uci -q get pia_wg.@keys[0].pub)" "https://$WGSRV_CN:1337/addKey")"
+    # Fall back to the next server of the region if one does not accept the key
+    while read -r WGSRV_IP WGSRV_CN; do
+      PIAADDKEY="$(curl -sfL -m15 --cacert "$PIACERT" -G --connect-to "$WGSRV_CN::$WGSRV_IP" --data-urlencode "pt=$(uci -q get pia_wg.@token[0].hash)" --data-urlencode "pubkey=$(uci -q get pia_wg.@keys[0].pub)" "https://$WGSRV_CN:1337/addKey")"
+      [ "$(echo "$PIAADDKEY" | jq -r '.status' 2>/dev/null)" = "OK" ] && break
+      echo "PIA server $WGSRV_CN ($WGSRV_IP) did not accept the key" >&3
+    done <<EOS
+$PIASRVS
+EOS
   else
     PIADESC="Dedicated IP $(uci -q get pia_wg.@dip[0].ip)"
     PIAADDKEY="$(curl -sfL -m15 --cacert "$PIACERT" -G --connect-to "$(uci -q get pia_wg.@dip[0].cn)::$(uci -q get pia_wg.@dip[0].ip)" --user "dedicated_ip_$(uci -q get pia_wg.@dip[0].token):$(uci -q get pia_wg.@dip[0].ip)" --data-urlencode "pubkey=$(uci -q get pia_wg.@keys[0].pub)" "https://$(uci -q get pia_wg.@dip[0].cn):1337/addKey")"
