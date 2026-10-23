@@ -239,7 +239,8 @@ renew_piatoken() {
   echo "Renewing PIA token" >&3
   uci -q get pia_wg.@user[0] >/dev/null || set_piauser
 
-  if ! PIARESPONSE="$(curl -sL -m15 --data-urlencode "username=$(uci -q get pia_wg.@user[0].id)" --data-urlencode "password=$(uci -q get pia_wg.@user[0].password)" https://www.privateinternetaccess.com/api/client/v2/token)"; then
+  # Pass the password on stdin so it does not show in the process list
+  if ! PIARESPONSE="$(printf '%s' "$(uci -q get pia_wg.@user[0].password)" | curl -sL -m15 --data-urlencode "username=$(uci -q get pia_wg.@user[0].id)" --data-urlencode "password@-" https://www.privateinternetaccess.com/api/client/v2/token)"; then
     echo "Error: Failed to connect to PIA authentication server!" >&3
     exit 1
   fi
@@ -291,7 +292,7 @@ keep_conf_section() {
   esac
   if uci -q get "pia_wg.@$1[0]" >/dev/null; then
     echo "A configuration already exists for '$DESC':"
-    uci show "pia_wg.@$1[0]" | awk 'sub(/^[^.]*\.[^.]*\./,"")==1{print "  "$0}'
+    uci show "pia_wg.@$1[0]" | awk 'sub(/^[^.]*\.[^.]*\./,"")==1{if($0~/^(password|priv)=/)sub(/=.*/,"=<hidden>");print "  "$0}'
     read_yn "Keep this configuration"
     return $?
   fi
