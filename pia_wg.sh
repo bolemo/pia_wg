@@ -128,15 +128,21 @@ set_piauser() {
 EOI
 }
 
+# Quotes a value for a curl config read with -K - (secrets go on stdin, not on the command line)
+curlcfg_quote() {
+  printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+}
+
 validate_dip() {
   DIPTOK="$(uci -q get pia_wg.@dip[0].token)" || return
   # The DIP API needs a valid PIA token
   ensure_piatoken
   # Try to fetch DIP info from API
-  DIPR="$(curl -sL -m15 -X POST 'https://www.privateinternetaccess.com/api/client/v2/dedicated_ip' \
-    --header 'Content-Type: application/json' \
-    --header "Authorization: Token $(uci -q get pia_wg.@token[0].hash)" \
-    -d '{ "tokens":["'"$DIPTOK"'"] }' | jq 'select(.[0]) | .[0]')"
+  DIPR="$(printf 'header = %s\ndata = %s\n' \
+    "$(curlcfg_quote "Authorization: Token $(uci -q get pia_wg.@token[0].hash)")" \
+    "$(curlcfg_quote '{ "tokens":["'"$DIPTOK"'"] }')" |
+    curl -sL -m15 -X POST 'https://www.privateinternetaccess.com/api/client/v2/dedicated_ip' \
+      --header 'Content-Type: application/json' -K - | jq 'select(.[0]) | .[0]')"
   # Extract status - if empty, API call failed (likely network down during restart)
   DIP_STATUS_NEW="$(echo "$DIPR" | jq -r 'select(.status) | .status')"
   if [ -z "$DIP_STATUS_NEW" ]; then
@@ -273,8 +279,11 @@ renew_piatoken() {
   echo "Renewing PIA token" >&3
   uci -q get pia_wg.@user[0] >/dev/null || set_piauser
 
-  # Pass the password on stdin so it does not show in the process list
-  if ! PIARESPONSE="$(printf '%s' "$(uci -q get pia_wg.@user[0].password)" | curl -sL -m15 --data-urlencode "username=$(uci -q get pia_wg.@user[0].id)" --data-urlencode "password@-" https://www.privateinternetaccess.com/api/client/v2/token)"; then
+  # Pass the credentials on stdin so they do not show in the process list
+  if ! PIARESPONSE="$(printf 'data-urlencode = %s\ndata-urlencode = %s\n' \
+    "$(curlcfg_quote "username=$(uci -q get pia_wg.@user[0].id)")" \
+    "$(curlcfg_quote "password=$(uci -q get pia_wg.@user[0].password)")" |
+    curl -sL -m15 -K - https://www.privateinternetaccess.com/api/client/v2/token)"; then
     echo "Error: Failed to connect to PIA authentication server!" >&3
     exit 1
   fi
@@ -327,7 +336,7 @@ keep_conf_section() {
   esac
   if uci -q get "pia_wg.@$1[0]" >/dev/null; then
     echo "A configuration already exists for '$DESC':"
-    uci show "pia_wg.@$1[0]" | awk 'sub(/^[^.]*\.[^.]*\./,"")==1{if($0~/^(password|priv)=/)sub(/=.*/,"=<hidden>");print "  "$0}'
+    uci show "pia_wg.@$1[0]" | awk 'sub(/^[^.]*\.[^.]*\./,"")==1{if($0~/^(password|priv|token|hash|webhook)=/)sub(/=.*/,"=<hidden>");print "  "$0}'
     read_yn "Keep this configuration"
     return $?
   fi
@@ -407,7 +416,8 @@ set_netconf() {
     }
     # Fall back to the next server of the region if one does not accept the key
     while read -r WGSRV_IP WGSRV_CN; do
-      PIAADDKEY="$(curl -sfL -m15 --cacert "$PIACERT" -G --connect-to "$WGSRV_CN::$WGSRV_IP" --data-urlencode "pt=$(uci -q get pia_wg.@token[0].hash)" --data-urlencode "pubkey=$(uci -q get pia_wg.@keys[0].pub)" "https://$WGSRV_CN:1337/addKey")"
+      PIAADDKEY="$(printf 'data-urlencode = %s\n' "$(curlcfg_quote "pt=$(uci -q get pia_wg.@token[0].hash)")" |
+        curl -sfL -m15 --cacert "$PIACERT" -G --connect-to "$WGSRV_CN::$WGSRV_IP" -K - --data-urlencode "pubkey=$(uci -q get pia_wg.@keys[0].pub)" "https://$WGSRV_CN:1337/addKey")"
       [ "$(echo "$PIAADDKEY" | jq -r '.status' 2>/dev/null)" = "OK" ] && break
       echo "PIA server $WGSRV_CN ($WGSRV_IP) did not accept the key" >&3
     done <<EOS
@@ -415,7 +425,8 @@ $PIASRVS
 EOS
   else
     PIADESC="Dedicated IP $(uci -q get pia_wg.@dip[0].ip)"
-    PIAADDKEY="$(curl -sfL -m15 --cacert "$PIACERT" -G --connect-to "$(uci -q get pia_wg.@dip[0].cn)::$(uci -q get pia_wg.@dip[0].ip)" --user "dedicated_ip_$(uci -q get pia_wg.@dip[0].token):$(uci -q get pia_wg.@dip[0].ip)" --data-urlencode "pubkey=$(uci -q get pia_wg.@keys[0].pub)" "https://$(uci -q get pia_wg.@dip[0].cn):1337/addKey")"
+    PIAADDKEY="$(printf 'user = %s\n' "$(curlcfg_quote "dedicated_ip_$(uci -q get pia_wg.@dip[0].token):$(uci -q get pia_wg.@dip[0].ip)")" |
+      curl -sfL -m15 --cacert "$PIACERT" -G --connect-to "$(uci -q get pia_wg.@dip[0].cn)::$(uci -q get pia_wg.@dip[0].ip)" -K - --data-urlencode "pubkey=$(uci -q get pia_wg.@keys[0].pub)" "https://$(uci -q get pia_wg.@dip[0].cn):1337/addKey")"
   fi
   #  echo "$PIAADDKEY"
 
