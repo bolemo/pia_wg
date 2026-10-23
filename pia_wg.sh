@@ -376,8 +376,7 @@ set_netconf() {
   WGSERVIP="$(echo "$PIAADDKEY" | jq -r '.server_ip')"
   WGSERVPT="$(echo "$PIAADDKEY" | jq -r '.server_port')"
   WGSERVKEY="$(echo "$PIAADDKEY" | jq -r '.server_key')"
-  WGDNS1="$(echo "$PIAADDKEY" | jq -r '.dns_servers[0]')"
-  WGDNS2="$(echo "$PIAADDKEY" | jq -r '.dns_servers[1]')"
+  WGDNS="$(echo "$PIAADDKEY" | jq -r '.dns_servers[]?')"
   WGPEERIP="$(echo "$PIAADDKEY" | jq -r '.peer_ip')"
 
   uci -q batch <<EOI >/dev/null
@@ -386,8 +385,7 @@ set_netconf() {
   set network.$PIAWG_IF=interface
   set network.$PIAWG_IF.addresses="$WGPEERIP"
   set network.$PIAWG_IF.private_key="$(uci -q get pia_wg.@keys[0].priv)"
-  add_list network.$PIAWG_IF.dns="$WGDNS1"
-  add_list network.$PIAWG_IF.dns="$WGDNS2"
+$(for DNS in $WGDNS; do echo "  add_list network.$PIAWG_IF.dns=\"$DNS\""; done)
   set network.$PIAWG_PEER="wireguard_${PIAWG_IF}"
   set network.$PIAWG_PEER.description="PIA $(uci -q get pia_wg.@region[0].name)"
   set network.$PIAWG_PEER.endpoint_host="$WGSERVIP"
