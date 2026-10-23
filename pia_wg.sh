@@ -195,8 +195,10 @@ EOI
 
 notify_post() {
   WEBHOOK="$(uci -q get pia_wg.@notify[0].webhook)" || return 1
-  jq -n --arg h "$(cat /proc/sys/kernel/hostname)" --arg t "$1" '{text:("pia_wg on "+$h+":\n"+$t)}' |
-    curl -sf -m10 -o /dev/null -H 'Content-Type: application/json' -d @- "$WEBHOOK"
+  # The webhook URL holds a secret (Slack path, bot token...): it goes to curl on stdin with the payload
+  printf 'url = %s\ndata = %s\n' "$(curlcfg_quote "$WEBHOOK")" \
+    "$(curlcfg_quote "$(jq -cn --arg h "$(cat /proc/sys/kernel/hostname)" --arg t "$1" '{text:("pia_wg on "+$h+":\n"+$t)}')")" |
+    curl -sf -m10 -o /dev/null -H 'Content-Type: application/json' -K -
 }
 
 # Sends lines queued by the watchdog; kept for the next run if the post fails (e.g. no connectivity)
