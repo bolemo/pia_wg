@@ -31,6 +31,8 @@ NOTIFYEVENTS='/tmp/pia_wg_notify.events'
 NOTIFYLAST='/tmp/pia_wg_notify.last'
 NOTIFYBURST=3    # watchdog runs with something to report that are notified right away within NOTIFYWINDOW...
 NOTIFYWINDOW=900 # ...beyond that it is flapping: at most one grouped notification per NOTIFYWINDOW (seconds)
+PFDIR='/tmp/pia_wg_pf'
+PFBIND=600 # seconds between port forwarding keepalives (PIA drops a port left unbound for about 15 minutes)
 
 read_yn() {
   while
@@ -268,6 +270,27 @@ EOI
   fi
 }
 
+set_portforward() {
+  if ! read_yn "Use PIA port forwarding"; then
+    uci -q delete pia_wg.@portforward[0]
+    uci -q commit pia_wg
+    rm -f "$PFDIR"/*
+    return
+  fi
+  printf "Script to run when the forwarded port changes, called with the port as argument (press enter for none): "
+  read -r PFSCRIPT
+  [ -z "$PFSCRIPT" ] || [ -x "$PFSCRIPT" ] || echo "Warning: '$PFSCRIPT' is not executable!"
+  uci -q batch <<EOI >/dev/null
+    delete pia_wg.@portforward[0]
+    add pia_wg portforward
+    set pia_wg.@portforward[0].enabled="1"
+    set pia_wg.@portforward[0].script="$PFSCRIPT"
+    commit pia_wg.@portforward[0]
+EOI
+  echo "Port forwarding is used from the next (re)start of PIA (e.g. './pia_wg.sh restart')"
+  echo "The region must support it (see 'Port forward only servers' in './pia_wg.sh configure region')"
+}
+
 set_defnetpeer() {
   uci -q batch <<EOI >/dev/null
     delete pia_wg.@net_peer[0]
@@ -379,6 +402,7 @@ keep_conf_section() {
   region) DESC='PIA region' ;;
   dip) DESC="Dedicated IP token" ;;
   notify) DESC="Notification webhook" ;;
+  portforward) DESC="Port forwarding" ;;
   esac
   if uci -q get "pia_wg.@$1[0]" >/dev/null; then
     echo "A configuration already exists for '$DESC':"
@@ -467,7 +491,7 @@ pick_region() {
   BEST=''
   BESTUS=''
   for ID in $FAVS; do
-    IP="$(printf '%s\n' "$PIALIST" | jq -r --arg id "$ID" '.regions[] | select(.id==$id and .offline==false) | .servers.meta[0].ip // empty')"
+    IP="$(printf '%s\n' "$PIALIST" | jq -r --arg id "$ID" --arg pf "$(uci -q get pia_wg.@portforward[0].enabled)" '.regions[] | select(.id==$id and .offline==false and ($pf != "1" or .port_forward == true)) | .servers.meta[0].ip // empty')"
     [ -n "$IP" ] || continue
     # Microseconds; curl reports 0 when the server does not answer
     US="$(curl -o /dev/null -s --connect-timeout 2 -m 3 -w '%{time_connect}' "http://$IP:443" | awk '{printf "%d", $1 * 1000000}')"
@@ -493,6 +517,79 @@ pick_region() {
     set pia_wg.@region[0].dns="$(printf '%s\n' "$PIALIST" | jq -r --arg id "$BEST" '.regions[] | select(.id==$id) | .dns')"
     commit pia_wg.@region[0]
 EOI
+}
+
+pf_enabled() {
+  [ "$(uci -q get pia_wg.@portforward[0].enabled)" = "1" ]
+}
+
+# Port forwarding state lives in /tmp: it is refreshed every few minutes, so it is not written to flash
+pf_get() {
+  V="$(cat "$PFDIR/$1" 2>/dev/null)"
+  printf '%s' "${V:-$2}"
+}
+
+pf_put() {
+  [ -d "$PFDIR" ] || mkdir -m 700 "$PFDIR"
+  printf '%s' "$2" >"$PFDIR/$1"
+}
+
+# PIA port forwarding API ($1 = getSignature or bindPort), reached through the tunnel at the WireGuard server;
+# the parameters come on stdin as a curl config, so they do not show in the process list
+pf_api() {
+  PFHOST="$(uci -q get pia_wg.@portforward[0].host)"
+  curl -sf -m 10 --interface "$PIAWG_IF" --cacert "$PIACERT" -G -K - \
+    --connect-to "$PFHOST::$(uci -q get pia_wg.@portforward[0].gateway):" "https://$PFHOST:19999/$1"
+}
+
+# Keeps the PIA forwarded port: gets a port when needed, binds it every PFBIND seconds,
+# and runs the configured script when the port changes
+pf_refresh() {
+  pf_enabled || return 0
+  # Nothing to do until PIA was (re)started with port forwarding enabled
+  [ -n "$(uci -q get pia_wg.@portforward[0].host)" ] || return 0
+  NOW="$(date +%s)"
+  # A new port when there is none or it expires within a day; after a failure, retry every PFBIND seconds
+  if [ -z "$(pf_get signature)" ] || [ "$(pf_get expires 0)" -lt $((NOW + 86400)) ]; then
+    [ $((NOW - $(pf_get failed 0))) -ge "$PFBIND" ] || return 1
+    R="$(printf 'data-urlencode = %s\n' "$(curlcfg_quote "token=$(uci -q get pia_wg.@token[0].hash)")" | pf_api getSignature)"
+    if [ "$(echo "$R" | jq -r '.status' 2>/dev/null)" != "OK" ]; then
+      pf_put failed "$NOW"
+      echo "Port forwarding: PIA did not give a port (does the region support port forwarding?)" >&3
+      return 1
+    fi
+    PAYLOAD="$(echo "$R" | jq -r '.payload')"
+    pf_put payload "$PAYLOAD"
+    pf_put signature "$(echo "$R" | jq -r '.signature')"
+    pf_put port "$(printf '%s' "$PAYLOAD" | jq -rR '@base64d | fromjson | .port')"
+    pf_put expires "$(printf '%s' "$PAYLOAD" | jq -rR '@base64d | fromjson | (.expires_at | split(".")[0] | rtrimstr("Z")) + "Z" | fromdateiso8601' 2>/dev/null || echo $((NOW + 604800)))"
+    pf_put bound 0
+  fi
+  # Keepalive
+  if [ $((NOW - $(pf_get bound 0))) -ge "$PFBIND" ]; then
+    R="$(printf 'data-urlencode = %s\ndata-urlencode = %s\n' "$(curlcfg_quote "payload=$(pf_get payload)")" "$(curlcfg_quote "signature=$(pf_get signature)")" | pf_api bindPort)"
+    if [ "$(echo "$R" | jq -r '.status' 2>/dev/null)" != "OK" ]; then
+      # Get a new port next time
+      pf_put signature ''
+      pf_put failed "$NOW"
+      echo "Port forwarding: PIA did not bind port $(pf_get port)" >&3
+      return 1
+    fi
+    pf_put bound "$NOW"
+  fi
+  # Tell the configured script when the port changes (retried every PFBIND seconds if it fails)
+  PORT="$(pf_get port)"
+  [ "$PORT" != "$(pf_get applied)" ] || return 0
+  [ $((NOW - $(pf_get scriptfailed 0))) -ge "$PFBIND" ] || return 1
+  echo "Port forwarding: port $PORT" >&3
+  SCRIPT="$(uci -q get pia_wg.@portforward[0].script)"
+  if [ -z "$SCRIPT" ] || "$SCRIPT" "$PORT"; then
+    pf_put applied "$PORT"
+  else
+    pf_put scriptfailed "$NOW"
+    echo "Port forwarding: '$SCRIPT $PORT' failed" >&3
+    return 1
+  fi
 }
 
 set_netconf() {
@@ -543,6 +640,17 @@ EOS
   WGDNS="$(echo "$PIAADDKEY" | jq -r '.dns_servers[]?')"
   WGPEERIP="$(echo "$PIAADDKEY" | jq -r '.peer_ip')"
 
+  if pf_enabled; then
+    # Port forwarding goes through the server that accepted the key; a new connection needs a new port
+    [ -z "$DIP_STATUS" ] && PFHOST="$WGSRV_CN" || PFHOST="$(uci -q get pia_wg.@dip[0].cn)"
+    rm -f "$PFDIR"/*
+    uci -q batch <<EOI >/dev/null
+    set pia_wg.@portforward[0].host="$PFHOST"
+    set pia_wg.@portforward[0].gateway="$WGSERVIP"
+    commit pia_wg.@portforward[0]
+EOI
+  fi
+
   uci -q batch <<EOI >/dev/null
   delete network.$PIAWG_IF
   delete network.$PIAWG_PEER
@@ -582,7 +690,12 @@ start_wgpia() {
   sleep 1
   check_wg
   RET=$?
-  [ $RET -eq 0 ] && echo "PIA started successfully ..." >&3 || echo "Could not start PIA!" >&3
+  if [ $RET -eq 0 ]; then
+    echo "PIA started successfully ..." >&3
+    pf_refresh
+  else
+    echo "Could not start PIA!" >&3
+  fi
   return $RET
 }
 
@@ -689,6 +802,7 @@ print_usage() {
   echo "    - configure keys     : generate local WireGuard keys"
   echo "    - configure network  : generate default network settings"
   echo "    - configure notify   : set a Slack (or compatible) webhook to notify watchdog errors/actions"
+  echo "    - configure portforward : enable/disable PIA port forwarding (and the script run when the port changes)"
   echo "    - init-network       : setup PIA WireGuard network (no start)"
   echo "    - start              : start PIA WireGuard (if not already up)"
   echo "    - start --watchdog   : same as start and install the watchdog"
@@ -764,6 +878,7 @@ case "$1" in
     ;;
   'keys') keep_conf_section 'keys' || generate_wgkeys ;;
   'notify') keep_conf_section 'notify' || set_notify ;;
+  'portforward') keep_conf_section 'portforward' || set_portforward ;;
   *)
     echo "Unknown configure subcommand '$2'!"
     print_usage
@@ -789,7 +904,10 @@ case "$1" in
 'start')
   check_wg
   case $? in
-  0) echo "PIA is already up!" ;;
+  0)
+    echo "PIA is already up!"
+    pf_refresh || true
+    ;;
   1) start_wgpia ;;
   2) echo "Could not start PIA!" >&2 ;;
   esac
@@ -804,6 +922,13 @@ case "$1" in
 'status')
   check_wg
   R=$?
+  if pf_enabled; then
+    if [ -n "$(pf_get signature)" ]; then
+      echo "Port forwarding: port $(pf_get port), last bound $((($(date +%s) - $(pf_get bound 0)) / 60)) min ago"
+    else
+      echo "Port forwarding: no port yet"
+    fi
+  fi
   if watchdog_installed; then
     echo "Watchdog (cron) installed: YES"
     if WLR="$(watchdog_lastrun)"; then

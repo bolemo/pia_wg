@@ -86,6 +86,22 @@ Instead of a single region, you can set several favorite regions: each time PIA 
 
 With a single region (no favorites), nothing changes.
 
+## Port forwarding
+PIA can forward one port to your router, on the regions that support it (see `Port forward only servers` when choosing a region; it is not available in the US). The port is chosen by PIA and can change, for instance when PIA reconnects.
+
+- Enable it with `./pia_wg.sh configure portforward`, then restart PIA. The port is requested once PIA is up, and the watchdog keeps it alive (PIA drops a port that is not refreshed).
+- Give a script to run when the port changes: it is called with the port as argument, for instance to update a firewall redirect (from the PIA zone to your torrent client) and the client's listening port.
+- `./pia_wg.sh status` shows the current port. With favorite regions, only those supporting port forwarding are used.
+
+Example of script, with a firewall redirect named `torrent` and Transmission on another host:
+```sh
+#!/bin/sh
+uci set firewall.torrent.src_dport="$1"
+uci set firewall.torrent.dest_port="$1"
+uci commit firewall && /etc/init.d/firewall reload
+transmission-remote 192.168.1.10:9091 --port "$1"
+```
+
 ## Usage
 Usage: `pia_wg.sh { configure <section> | start [ --watchdog ] | restart [ --watchdog ] | stop | status | watchdog { install | remove } | log { show | clear | path } | update | version}
 <br/>  Details:
@@ -97,6 +113,7 @@ Usage: `pia_wg.sh { configure <section> | start [ --watchdog ] | restart [ --wat
   - `configure keys`     : generate local WireGuard keys
   - `configure network`  : generate default network settings
   - `configure notify`   : set a Slack (or compatible) webhook to notify watchdog errors/actions
+  - `configure portforward` : enable/disable PIA port forwarding (and the script run when the port changes)
   - `init-network`       : setup PIA WireGuard network (no start)
   - `start`              : start PIA WireGuard (if not already up)
   - `start --watchdog`   : same as start and install the watchdog
