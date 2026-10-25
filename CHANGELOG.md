@@ -2,6 +2,15 @@
 
 All notable changes to pia_wg are listed here, newest first. The version is the `# Version:` line of the script (there are no git tags); `pia_wg.sh update` installs the latest one. Entries before 1.0.17 were reconstructed from the git history.
 
+## [1.0.21] - 2026-10-25
+### Added
+- Fallback to the next favorite region: when the chosen region has no WireGuard server, or none of its servers accepts the key, the other favorites are tried, fastest first.
+- The port forwarding script is stopped after 20 seconds, so a hung script cannot stall the watchdog; a timeout is reported as such, by @bwitt ([#51](https://github.com/bolemo/pia_wg/pull/51)).
+
+### Changed
+- A clear error when the PIA server list cannot be downloaded, instead of `no WireGuard server found`.
+- Without the `timeout` command, the port forwarding script still runs, without a time limit.
+
 ## [1.0.20] - 2026-10-24
 ### Added
 - PIA port forwarding, optional (`configure portforward`). Once PIA is up, the script gets a port from the WireGuard server, and the watchdog keeps it alive (`bindPort` every 10 minutes). A new port is requested when it is about to expire or cannot be bound. A script given by the user is run with the port as argument whenever it changes, for instance to update a firewall redirect and the torrent client.
