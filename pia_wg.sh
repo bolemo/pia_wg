@@ -32,7 +32,8 @@ NOTIFYLAST='/tmp/pia_wg_notify.last'
 NOTIFYBURST=3    # watchdog runs with something to report that are notified right away within NOTIFYWINDOW...
 NOTIFYWINDOW=900 # ...beyond that it is flapping: at most one grouped notification per NOTIFYWINDOW (seconds)
 PFDIR='/tmp/pia_wg_pf'
-PFBIND=600 # seconds between port forwarding keepalives (PIA drops a port left unbound for about 15 minutes)
+PFBIND=600     # seconds between port forwarding keepalives (PIA drops a port left unbound for about 15 minutes)
+PFSCRIPTMAX=20 # seconds before the port change script is stopped
 
 read_yn() {
   while
@@ -583,11 +584,17 @@ pf_refresh() {
   [ $((NOW - $(pf_get scriptfailed 0))) -ge "$PFBIND" ] || return 1
   echo "Port forwarding: port $PORT" >&3
   SCRIPT="$(uci -q get pia_wg.@portforward[0].script)"
-  if [ -z "$SCRIPT" ] || "$SCRIPT" "$PORT"; then
+  # So a hung script cannot stall the watchdog
+  if [ -z "$SCRIPT" ] || timeout "$PFSCRIPTMAX" "$SCRIPT" "$PORT"; then
     pf_put applied "$PORT"
   else
+    RC=$?
     pf_put scriptfailed "$NOW"
-    echo "Port forwarding: '$SCRIPT $PORT' failed" >&3
+    # 143: BusyBox timeout (SIGTERM), 124: coreutils timeout
+    case "$RC" in
+    124 | 143) echo "Port forwarding: '$SCRIPT $PORT' timed out after $PFSCRIPTMAX s" >&3 ;;
+    *) echo "Port forwarding: '$SCRIPT $PORT' failed (exit $RC)" >&3 ;;
+    esac
     return 1
   fi
 }
