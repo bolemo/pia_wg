@@ -80,7 +80,7 @@ The watchdog can post to a Slack [incoming webhook](https://api.slack.com/messag
 - For [ntfy](https://ntfy.sh), use its [message templating](https://docs.ntfy.sh/publish/#message-templating) to extract the text, e.g. `https://ntfy.sh/your-topic?tpl=yes&t=pia_wg&m=%7B%7B.text%7D%7D` (keep the braces URL-encoded as `%7B`/`%7D`).
 
 ## Favorite regions
-Instead of a single region, you can set several favorite regions: each time PIA (re)connects, the script measures how fast each one answers (TCP connect time to its PIA meta server) and uses the fastest. A working connection is never switched: the choice is only made when connecting (at start, or when the watchdog restarts PIA). Switching region is logged, and notified if a webhook is set.
+Instead of a single region, you can set several favorite regions: each time PIA (re)connects, the script measures how fast each one answers (TCP connect time to its PIA meta server) and uses the fastest. A working connection is never switched: the choice is only made when connecting (at start, or when the watchdog restarts PIA). If the chosen region has no server or none of its servers accepts the key, the other favorites are tried, fastest first. Switching region is logged, and notified if a webhook is set.
 
 - `./pia_wg.sh configure region` offers to add favorite regions after the first one (region IDs are shown in brackets in the list).
 - Or with uci, listing every favorite including the current region: `uci add_list pia_wg.@region[0].favorite='france'`, then `uci commit pia_wg`.

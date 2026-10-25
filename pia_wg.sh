@@ -484,40 +484,76 @@ check_conf() {
     }
 }
 
+# Sets the region in use (ID, name and DNS taken from the PIA server list)
+set_region() {
+  uci -q batch <<EOI >/dev/null
+    set pia_wg.@region[0].id="$1"
+    set pia_wg.@region[0].name="$(printf '%s\n' "$PIALIST" | jq -r --arg id "$1" '.regions[] | select(.id==$id) | .name')"
+    set pia_wg.@region[0].dns="$(printf '%s\n' "$PIALIST" | jq -r --arg id "$1" '.regions[] | select(.id==$id) | .dns')"
+    commit pia_wg.@region[0]
+EOI
+}
+
 # With several favorite regions, use the one whose PIA meta server answers fastest (TCP connect time).
 # The choice is only made when connecting, so a working connection is never switched.
+# Sets PIAREGIONORDER, the regions to try in turn: the chosen one, then the other favorites, fastest first.
 pick_region() {
+  CUR="$(uci -q get pia_wg.@region[0].id)"
+  PIAREGIONORDER="$CUR"
   FAVS="$(uci -q get pia_wg.@region[0].favorite)"
   [ "$(echo "$FAVS" | wc -w)" -gt 1 ] || return 0
-  BEST=''
-  BESTUS=''
+  TIMES=''
+  SILENT=''
   for ID in $FAVS; do
     IP="$(printf '%s\n' "$PIALIST" | jq -r --arg id "$ID" --arg pf "$(uci -q get pia_wg.@portforward[0].enabled)" '.regions[] | select(.id==$id and .offline==false and ($pf != "1" or .port_forward == true)) | .servers.meta[0].ip // empty')"
     [ -n "$IP" ] || continue
     # Microseconds; curl reports 0 when the server does not answer
     US="$(curl -o /dev/null -s --connect-timeout 2 -m 3 -w '%{time_connect}' "http://$IP:443" | awk '{printf "%d", $1 * 1000000}')"
-    [ "${US:-0}" -gt 0 ] || continue
-    if [ -z "$BESTUS" ] || [ "$US" -lt "$BESTUS" ]; then
-      BEST="$ID"
-      BESTUS="$US"
+    if [ "${US:-0}" -gt 0 ]; then
+      TIMES="$TIMES$US $ID
+"
+    else
+      SILENT="$SILENT $ID"
     fi
   done
+  # Favorites that did not answer are tried last
+  PIAREGIONORDER="$(printf '%s' "$TIMES" | sort -n | awk '{printf "%s ", $2}')$SILENT"
+  BEST="$(printf '%s' "$TIMES" | sort -n | head -n 1)"
   if [ -z "$BEST" ]; then
     echo "No favorite region answered, keeping $(uci -q get pia_wg.@region[0].name)" >&3
+    PIAREGIONORDER="$CUR $(echo "$SILENT" | tr ' ' '\n' | grep -v -x -F "$CUR" | tr '\n' ' ')"
     return 0
   fi
+  BESTUS="${BEST%% *}"
+  BEST="${BEST#* }"
   BESTNAME="$(printf '%s\n' "$PIALIST" | jq -r --arg id "$BEST" '.regions[] | select(.id==$id) | .name')"
-  if [ "$BEST" = "$(uci -q get pia_wg.@region[0].id)" ]; then
+  if [ "$BEST" = "$CUR" ]; then
     echo "Fastest favorite region: $BESTNAME ($((BESTUS / 1000)) ms)"
     return 0
   fi
   echo "Switching to the fastest favorite region: $BESTNAME ($((BESTUS / 1000)) ms)" >&3
-  uci -q batch <<EOI >/dev/null
-    set pia_wg.@region[0].id="$BEST"
-    set pia_wg.@region[0].name="$BESTNAME"
-    set pia_wg.@region[0].dns="$(printf '%s\n' "$PIALIST" | jq -r --arg id "$BEST" '.regions[] | select(.id==$id) | .dns')"
-    commit pia_wg.@region[0]
-EOI
+  set_region "$BEST"
+}
+
+# Adds the WireGuard key on the first region of PIAREGIONORDER that accepts it, trying every server of a
+# region before the next region; sets PIAADDKEY, WGSRV_IP, WGSRV_CN and PIAREGIONID
+add_key() {
+  for PIAREGIONID in $PIAREGIONORDER; do
+    PIASRVS="$(printf '%s\n' "$PIALIST" | jq -r --arg id "$PIAREGIONID" '.regions[] | select(.id==$id) | .servers.wg[]? | .ip+" "+.cn')"
+    if [ -z "$PIASRVS" ]; then
+      echo "No WireGuard server found for region $PIAREGIONID" >&3
+      continue
+    fi
+    while read -r WGSRV_IP WGSRV_CN; do
+      PIAADDKEY="$(printf 'data-urlencode = %s\n' "$(curlcfg_quote "pt=$(uci -q get pia_wg.@token[0].hash)")" |
+        curl -sfL -m15 --cacert "$PIACERT" -G --connect-to "$WGSRV_CN::$WGSRV_IP" -K - --data-urlencode "pubkey=$(uci -q get pia_wg.@keys[0].pub)" "https://$WGSRV_CN:1337/addKey")"
+      [ "$(echo "$PIAADDKEY" | jq -r '.status' 2>/dev/null)" = "OK" ] && return 0
+      echo "PIA server $WGSRV_CN ($WGSRV_IP) did not accept the key" >&3
+    done <<EOS
+$PIASRVS
+EOS
+  done
+  return 1
 }
 
 pf_enabled() {
@@ -620,23 +656,20 @@ set_netconf() {
   # if no DIP (DIP_STATUS is set from check_conf)
   if [ -z "$DIP_STATUS" ]; then
     PIALIST="$(curl -sfL -m15 https://serverlist.piaservers.net/vpninfo/servers/v7 | head -1)"
-    pick_region
-    PIAREGIONID="$(uci -q get pia_wg.@region[0].id)"
-    PIADESC="$(uci -q get pia_wg.@region[0].name)"
-    PIASRVS="$(printf '%s\n' "$PIALIST" | jq -r --arg id "$PIAREGIONID" '.regions[] | select(.id==$id) | .servers.wg[]? | .ip+" "+.cn')"
-    [ -n "$PIASRVS" ] || {
-      echo "Error: no WireGuard server found for region $PIAREGIONID" >&3
+    printf '%s\n' "$PIALIST" | jq -e '.regions' >/dev/null 2>&1 || {
+      echo "Error: could not download the PIA server list" >&3
       exit 1
     }
-    # Fall back to the next server of the region if one does not accept the key
-    while read -r WGSRV_IP WGSRV_CN; do
-      PIAADDKEY="$(printf 'data-urlencode = %s\n' "$(curlcfg_quote "pt=$(uci -q get pia_wg.@token[0].hash)")" |
-        curl -sfL -m15 --cacert "$PIACERT" -G --connect-to "$WGSRV_CN::$WGSRV_IP" -K - --data-urlencode "pubkey=$(uci -q get pia_wg.@keys[0].pub)" "https://$WGSRV_CN:1337/addKey")"
-      [ "$(echo "$PIAADDKEY" | jq -r '.status' 2>/dev/null)" = "OK" ] && break
-      echo "PIA server $WGSRV_CN ($WGSRV_IP) did not accept the key" >&3
-    done <<EOS
-$PIASRVS
-EOS
+    pick_region
+    add_key || {
+      echo "Error: no PIA server accepted the key (regions tried: $PIAREGIONORDER)" >&3
+      exit 1
+    }
+    if [ "$PIAREGIONID" != "$(uci -q get pia_wg.@region[0].id)" ]; then
+      echo "Falling back to the favorite region $(printf '%s\n' "$PIALIST" | jq -r --arg id "$PIAREGIONID" '.regions[] | select(.id==$id) | .name')" >&3
+      set_region "$PIAREGIONID"
+    fi
+    PIADESC="$(uci -q get pia_wg.@region[0].name)"
   else
     PIADESC="Dedicated IP $(uci -q get pia_wg.@dip[0].ip)"
     PIAADDKEY="$(printf 'user = %s\n' "$(curlcfg_quote "dedicated_ip_$(uci -q get pia_wg.@dip[0].token):$(uci -q get pia_wg.@dip[0].ip)")" |
