@@ -91,7 +91,7 @@ With a single region (no favorites), nothing changes.
 PIA can forward one port to your router, on the regions that support it (see `Port forward only servers` when choosing a region; it is not available in the US). The port is chosen by PIA and can change, for instance when PIA reconnects.
 
 - Enable it with `./pia_wg.sh configure portforward`, then restart PIA. The port is requested once PIA is up, and the watchdog keeps it alive (PIA drops a port that is not refreshed).
-- Give a script to run when the port changes: it is called with the port as argument, for instance to update a firewall redirect (from the PIA zone to your torrent client) and the client's listening port.
+- Give a script to run when the port changes: it is called with the port as argument, for instance to update a firewall redirect (from the PIA zone to your torrent client) and the client's listening port. It must finish within 20 seconds: otherwise it is stopped and, like a failed run, retried 10 minutes later.
 - `./pia_wg.sh status` shows the current port. With favorite regions, only those supporting port forwarding are used.
 
 Example of script, with a firewall redirect named `torrent` and Transmission on another host:
