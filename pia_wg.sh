@@ -543,6 +543,15 @@ pf_api() {
     --connect-to "$PFHOST::$(uci -q get pia_wg.@portforward[0].gateway):" "https://$PFHOST:19999/$1"
 }
 
+# Runs the port change script, stopped after PFSCRIPTMAX seconds when the timeout command is available
+pf_run_script() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$PFSCRIPTMAX" "$@"
+  else
+    "$@"
+  fi
+}
+
 # Keeps the PIA forwarded port: gets a port when needed, binds it every PFBIND seconds,
 # and runs the configured script when the port changes
 pf_refresh() {
@@ -585,7 +594,7 @@ pf_refresh() {
   echo "Port forwarding: port $PORT" >&3
   SCRIPT="$(uci -q get pia_wg.@portforward[0].script)"
   # So a hung script cannot stall the watchdog
-  if [ -z "$SCRIPT" ] || timeout "$PFSCRIPTMAX" "$SCRIPT" "$PORT"; then
+  if [ -z "$SCRIPT" ] || pf_run_script "$SCRIPT" "$PORT"; then
     pf_put applied "$PORT"
   else
     RC=$?
