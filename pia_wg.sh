@@ -350,13 +350,21 @@ renew_piatoken() {
   uci -q get pia_wg.@user[0] >/dev/null || set_piauser
 
   # Pass the credentials on stdin so they do not show in the process list
-  if ! PIARESPONSE="$(printf 'data-urlencode = %s\ndata-urlencode = %s\n' \
+  # Retry a few times since DNS and routes may initially try to use the dead tunnel
+  TRY=1
+  until PIARESPONSE="$(printf 'data-urlencode = %s\ndata-urlencode = %s\n' \
     "$(curlcfg_quote "username=$(uci -q get pia_wg.@user[0].id)")" \
     "$(curlcfg_quote "password=$(uci -q get pia_wg.@user[0].password)")" |
-    curl -sL -m15 -K - https://www.privateinternetaccess.com/api/client/v2/token)"; then
-    echo "Error: Failed to connect to PIA authentication server!" >&3
-    exit 1
-  fi
+    curl -sL --connect-timeout 5 -m15 -K - https://www.privateinternetaccess.com/api/client/v2/token)"; do
+    RC=$?
+    if [ $TRY -ge 3 ]; then
+      echo "Error: Failed to connect to PIA authentication server (curl exit $RC)!" >&3
+      exit 1
+    fi
+    echo "Failed to connect to PIA authentication server (curl exit $RC), retrying in 3s" >&3
+    TRY=$((TRY + 1))
+    sleep 3
+  done
 
   # Check if response is empty
   if [ -z "$PIARESPONSE" ]; then
@@ -752,6 +760,17 @@ stop_wgpia() {
   DESC=" ($(uci -q get network.$PIAWG_PEER.description))" || DESC=""
   echo "Stopping PIA$DESC" >&3
   ifdown $PIAWG_IF >/dev/null 2>&1
+  # ifdown returns before netifd removes the tunnel; until then PIA's API may be routed into the dead tunnel
+  WAIT=0
+  while wg show "$PIAWG_IF" >/dev/null 2>&1 && [ $WAIT -lt 10 ]; do
+    sleep 1
+    WAIT=$((WAIT + 1))
+  done
+  if wg show "$PIAWG_IF" >/dev/null 2>&1; then
+    echo "WireGuard PIA interface still up ${WAIT}s after ifdown" >&3
+  elif [ $WAIT -gt 0 ]; then
+    echo "WireGuard PIA interface took ${WAIT}s to go down" >&3
+  fi
 }
 
 check_wg() {
