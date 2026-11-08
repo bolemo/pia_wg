@@ -937,7 +937,9 @@ if [ "$AUTO" ]; then
   [ -f "$NOTIFYPENDING" ] && NOTIFYSIZE="$(($(wc -c <"$NOTIFYPENDING")))" || NOTIFYSIZE=0
   awk -v lf="$PIALOG" -v nf="$NF" -v date="$(date)" '{print; printf("[%s] %s\n",date,$0) >> lf; if(nf){printf("[%s] %s\n",date,$0) >> nf}}' "$FIFO" >&2 &
   LOGGERPID=$!
-  exec 3<>"$FIFO"
+  # Write-only, so this waits for the logger to open the FIFO: a run ending at once would otherwise leave it
+  # blocked on an open that no writer will ever match, and _exit waiting for it forever
+  exec 3>"$FIFO"
 else
   exec 3>&2
 fi
