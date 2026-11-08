@@ -32,6 +32,7 @@ NOTIFYLAST='/tmp/pia_wg_notify.last'
 NOTIFYBURST=3    # watchdog runs with something to report that are notified right away within NOTIFYWINDOW...
 NOTIFYWINDOW=900 # ...beyond that it is flapping: at most one grouped notification per NOTIFYWINDOW (seconds)
 PFDIR='/tmp/pia_wg_pf'
+PIALOCK='/tmp/pia_wg.lock'
 PFBIND=600     # seconds between port forwarding keepalives (PIA drops a port left unbound for about 15 minutes)
 PFSCRIPTMAX=20 # seconds before the port change script is stopped
 
@@ -800,6 +801,26 @@ check_wg() {
   fi
 }
 
+# Only one run at a time, so a long restart is not cut short by the next watchdog run;
+# a lock left by a run that died is taken over
+take_lock() {
+  if ! mkdir "$PIALOCK" 2>/dev/null; then
+    LOCKPID="$(cat "$PIALOCK/pid" 2>/dev/null)"
+    # The other run may not have written its PID yet
+    [ -n "$LOCKPID" ] || {
+      sleep 1
+      LOCKPID="$(cat "$PIALOCK/pid" 2>/dev/null)"
+    }
+    [ -n "$LOCKPID" ] && kill -0 "$LOCKPID" 2>/dev/null && return 1
+  fi
+  echo $$ >"$PIALOCK/pid"
+}
+
+# shellcheck disable=SC2329  # Function is used in _exit and in a trap
+release_lock() {
+  [ "$(cat "$PIALOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$PIALOCK"
+}
+
 watchdog_installed() {
   grep -qF 'pia_wg.sh start' /etc/crontabs/root 2>/dev/null
   return $?
@@ -904,6 +925,7 @@ if [ "$AUTO" ]; then
     exec 3>&-
     wait "$LOGGERPID" 2>/dev/null
     notify_send
+    release_lock
     rm "$FIFO" >/dev/null 2>&1
     exit
   }
@@ -919,6 +941,18 @@ if [ "$AUTO" ]; then
 else
   exec 3>&2
 fi
+
+# Commands that (re)configure or (re)start PIA take the lock; a watchdog run that finds it taken just skips
+case "$1" in
+start | restart | stop | init-network)
+  if ! take_lock; then
+    [ "$AUTO" ] && exit 0
+    echo "Another pia_wg run is in progress (pid $LOCKPID), try again in a moment" >&2
+    exit 1
+  fi
+  [ "$AUTO" ] || trap 'release_lock' EXIT
+  ;;
+esac
 
 case "$1" in
 'configure') case "$2" in
