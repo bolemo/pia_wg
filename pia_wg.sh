@@ -769,7 +769,7 @@ stop_wgpia() {
   if wg show "$PIAWG_IF" >/dev/null 2>&1; then
     echo "WireGuard PIA interface still up ${WAIT}s after ifdown" >&3
   elif [ $WAIT -gt 0 ]; then
-    echo "WireGuard PIA interface took ${WAIT}s to go down" >&3
+    echo "WireGuard PIA interface took ${WAIT}s to go down"
   fi
 }
 
