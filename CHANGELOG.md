@@ -2,6 +2,17 @@
 
 All notable changes to pia_wg are listed here, newest first. The version is the `# Version:` line of the script (there are no git tags); `pia_wg.sh update` installs the latest one. Entries before 1.0.17 were reconstructed from the git history.
 
+## [1.0.22] - 2026-11-08
+### Added
+- Two runs can no longer overlap: `start`, `restart`, `stop` and `init-network` take a lock, a watchdog run that finds a previous run still going (e.g. a long restart) skips, and a lock left by a run that died is taken over.
+
+### Fixed
+- A run that ended right away (a quick command run outside a terminal, or a watchdog run skipping because another one holds the lock) could hang forever waiting for the log writer; this came with the notifications in 1.0.18.
+- A restart no longer leaves the tunnel down until the next watchdog run when the token request goes into the dead tunnel: the request is retried (3 times, 3 seconds apart), and stopping PIA waits for the interface to be gone, by @bwitt ([#53](https://github.com/bolemo/pia_wg/pull/53)).
+
+### Changed
+- The time the interface took to go down is only logged when it is still up after 10 seconds.
+
 ## [1.0.21] - 2026-10-25
 ### Added
 - Fallback to the next favorite region: when the chosen region has no WireGuard server, or none of its servers accepts the key, the other favorites are tried, fastest first.
